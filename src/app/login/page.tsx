@@ -3,9 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { LogIn } from "lucide-react";
 import { AuthShell, Field } from "@/components/auth-shell";
+import { GuestOnly } from "@/components/guest-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { useAuthStore } from "@/stores/auth-store";
 
 export default function LoginPage() {
@@ -20,13 +23,14 @@ export default function LoginPage() {
     e.preventDefault();
     try {
       await login(email, password);
-      router.push("/dashboard");
+      router.replace("/dashboard");
     } catch {
       // toasted in store
     }
   }
 
   return (
+    <GuestOnly>
     <AuthShell
       title="Log in to BuildBoard"
       subtitle="Continue to your workspace boards."
@@ -42,8 +46,7 @@ export default function LoginPage() {
           />
         </Field>
         <Field label="Password">
-          <Input
-            type="password"
+          <PasswordInput
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
@@ -51,7 +54,14 @@ export default function LoginPage() {
           />
         </Field>
         <Button type="submit" fullWidth disabled={loading}>
-          {loading ? "Signing in..." : "Continue"}
+          {loading ? (
+            "Signing in..."
+          ) : (
+            <>
+              <LogIn className="h-4 w-4" strokeWidth={2} aria-hidden />
+              Continue
+            </>
+          )}
         </Button>
       </form>
       <div className="mt-6 space-y-2 text-center text-sm text-bb-muted">
@@ -74,5 +84,6 @@ export default function LoginPage() {
         </p>
       </div>
     </AuthShell>
+    </GuestOnly>
   );
 }

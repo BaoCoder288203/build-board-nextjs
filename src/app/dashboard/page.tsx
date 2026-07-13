@@ -1,5 +1,6 @@
 "use client";
 
+import { Home, Plus, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
@@ -51,6 +52,7 @@ function DashboardContent() {
           href="/workspaces/new"
           className={buttonClassName({ variant: "primary", size: "sm" })}
         >
+          <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
           Create workspace
         </Link>
       </div>
@@ -67,6 +69,7 @@ function DashboardContent() {
             href="/workspaces/new"
             className={`${buttonClassName({ variant: "primary" })} mt-6 inline-flex`}
           >
+            <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
             Create workspace
           </Link>
         </div>
@@ -94,22 +97,21 @@ function DashboardContent() {
 
           <Link
             href="/workspaces/new"
-            className="flex min-h-[168px] flex-col items-center justify-center rounded-[12px] border border-dashed border-bb-border bg-bb-sky/40 text-sm font-semibold text-bb-muted transition hover:border-bb-blue hover:text-bb-blue"
+            className="flex min-h-[168px] flex-col items-center justify-center gap-2 rounded-[12px] border border-dashed border-bb-border bg-bb-sky/40 text-sm font-semibold text-bb-muted transition hover:border-bb-blue hover:text-bb-blue"
           >
+            <Plus className="h-5 w-5" strokeWidth={2} aria-hidden />
             Create new workspace
           </Link>
         </div>
       )}
 
       <div className="mt-10 flex gap-3">
-        <Link href="/" className={buttonClassName({ variant: "secondary", size: "sm" })}>
-          Back to home
-        </Link>
         <Button
           variant="ghost"
           size="sm"
           onClick={() => window.location.reload()}
         >
+          <RefreshCw className="h-4 w-4" strokeWidth={2} aria-hidden />
           Refresh
         </Button>
       </div>

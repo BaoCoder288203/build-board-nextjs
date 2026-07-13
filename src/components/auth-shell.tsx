@@ -67,5 +67,6 @@ export function AuthShell({
 
 export { Field } from "@/components/ui/label";
 export { Input, inputClassName } from "@/components/ui/input";
+export { PasswordInput } from "@/components/ui/password-input";
 export { Button, buttonClassName } from "@/components/ui/button";
 export { Alert } from "@/components/ui/alert";
