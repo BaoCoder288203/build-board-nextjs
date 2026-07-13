@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Alert, AuthShell, Field } from "@/components/auth-shell";
+import { GuestOnly } from "@/components/guest-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { useAuthStore } from "@/stores/auth-store";
 
 export default function RegisterPage() {
@@ -28,6 +30,7 @@ export default function RegisterPage() {
   }
 
   return (
+    <GuestOnly>
     <AuthShell
       title="Sign up for BuildBoard"
       subtitle="Create an account — verify your email before your first login."
@@ -52,8 +55,7 @@ export default function RegisterPage() {
           />
         </Field>
         <Field label="Password">
-          <Input
-            type="password"
+          <PasswordInput
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
@@ -87,5 +89,6 @@ export default function RegisterPage() {
         </Link>
       </p>
     </AuthShell>
+    </GuestOnly>
   );
 }
