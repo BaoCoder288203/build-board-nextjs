@@ -1,5 +1,6 @@
 "use client";
 
+import { Plus, Send, UserMinus } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -22,6 +23,10 @@ import {
   type WorkspaceMember,
   type WorkspaceRole,
 } from "@/lib/workspaces";
+import {
+  fetchProjects,
+  type ProjectSummary,
+} from "@/lib/projects";
 
 function WorkspaceDetailContent() {
   const params = useParams<{ workspaceId: string }>();
@@ -31,6 +36,7 @@ function WorkspaceDetailContent() {
   const [workspace, setWorkspace] = useState<WorkspaceDetail | null>(null);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [roles, setRoles] = useState<WorkspaceRole[]>([]);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState("");
   const [roleId, setRoleId] = useState("");
@@ -45,17 +51,22 @@ function WorkspaceDetailContent() {
   const canRemove =
     workspace?.myMembership?.permissions.includes("member:remove")
     || workspace?.myMembership?.isOwner;
+  const canCreateProject =
+    workspace?.myMembership?.permissions.includes("project:create")
+    || workspace?.myMembership?.isOwner;
 
   const load = useCallback(async () => {
     try {
-      const [ws, mem, roleList] = await Promise.all([
+      const [ws, mem, roleList, projectList] = await Promise.all([
         fetchWorkspace(workspaceId),
         fetchMembers(workspaceId),
         fetchRoles(workspaceId),
+        fetchProjects(workspaceId),
       ]);
       setWorkspace(ws);
       setMembers(mem.items);
       setRoles(roleList);
+      setProjects(projectList.items);
       const defaultRole =
         roleList.find((r) => r.name === "Developer") ??
         roleList.find((r) => r.name !== "Owner");
@@ -151,7 +162,57 @@ function WorkspaceDetailContent() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-        <section className="rounded-[12px] border border-bb-border/80 bg-bb-surface p-5 shadow-bb">
+        <div className="space-y-6">
+          <section className="rounded-[12px] border border-bb-border/80 bg-bb-surface p-5 shadow-bb">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-bb-ink">Projects</h2>
+                <p className="mt-1 text-sm text-bb-muted">
+                  {projects.length} projects in this workspace
+                </p>
+              </div>
+              {canCreateProject ? (
+                <Link
+                  href={`/workspaces/${workspaceId}/projects/new`}
+                  className={buttonClassName({ variant: "primary", size: "sm" })}
+                >
+                  <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
+                  New project
+                </Link>
+              ) : null}
+            </div>
+            {projects.length === 0 ? (
+              <p className="mt-6 text-sm text-bb-muted">
+                No projects yet. Create one to open a board.
+              </p>
+            ) : (
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                {projects.map((project) => (
+                  <Link
+                    key={project.id}
+                    href={`/projects/${project.id}`}
+                    className="rounded-[12px] border border-bb-border/70 p-4 transition hover:border-bb-blue hover:bg-bb-sky/40"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span
+                        className="h-10 w-10 rounded-lg"
+                        style={{ background: project.color || "#0C66E4" }}
+                      />
+                      <div>
+                        <p className="font-bold text-bb-ink">{project.name}</p>
+                        <p className="text-xs text-bb-muted">
+                          {project.boardsCount ?? 0} boards ·{" "}
+                          {project.tasksCount ?? 0} tasks
+                        </p>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-[12px] border border-bb-border/80 bg-bb-surface p-5 shadow-bb">
           <h2 className="text-lg font-bold text-bb-ink">Members</h2>
           <p className="mt-1 text-sm text-bb-muted">
             {members.length} people in this workspace
@@ -192,6 +253,7 @@ function WorkspaceDetailContent() {
                       size="sm"
                       onClick={() => onRemove(member.id)}
                     >
+                      <UserMinus className="h-4 w-4" strokeWidth={2} aria-hidden />
                       Remove
                     </Button>
                   ) : null}
@@ -200,6 +262,7 @@ function WorkspaceDetailContent() {
             ))}
           </ul>
         </section>
+        </div>
 
         <aside className="space-y-4">
           {canInvite ? (
@@ -235,7 +298,14 @@ function WorkspaceDetailContent() {
                   </select>
                 </Field>
                 <Button type="submit" fullWidth disabled={inviting}>
-                  {inviting ? "Sending..." : "Send invite"}
+                  {inviting ? (
+                    "Sending..."
+                  ) : (
+                    <>
+                      <Send className="h-4 w-4" strokeWidth={2} aria-hidden />
+                      Send invite
+                    </>
+                  )}
                 </Button>
                 {debugToken ? (
                   <Alert tone="info" className="mt-4 mb-0">

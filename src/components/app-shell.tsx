@@ -1,5 +1,6 @@
 "use client";
 
+import { LayoutDashboard, LogOut } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
@@ -22,7 +23,7 @@ export function AppShell({
 
   async function onLogout() {
     await logout();
-    router.replace("/login");
+    router.replace("/");
   }
 
   return (
@@ -34,9 +35,10 @@ export function AppShell({
             <nav className="hidden items-center gap-1 sm:flex">
               <Link
                 href="/dashboard"
-                className="rounded-lg px-3 py-1.5 text-sm font-semibold text-bb-blue bg-bb-sky"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-bb-sky px-3 py-1.5 text-sm font-semibold text-bb-blue"
               >
-                Boards
+                <LayoutDashboard className="h-4 w-4" strokeWidth={2} aria-hidden />
+                Workspaces
               </Link>
             </nav>
           </div>
@@ -54,6 +56,7 @@ export function AppShell({
               {(user?.fullName?.[0] ?? "U").toUpperCase()}
             </div>
             <Button variant="secondary" size="sm" onClick={onLogout}>
+              <LogOut className="h-4 w-4" strokeWidth={2} aria-hidden />
               Sign out
             </Button>
           </div>
