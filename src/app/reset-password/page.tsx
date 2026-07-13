@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useState } from "react";
 import { Alert, AuthShell, Field } from "@/components/auth-shell";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { api } from "@/lib/api";
 import { toastFromError, toastSuccess } from "@/lib/toast";
 
@@ -44,8 +44,7 @@ function ResetPasswordInner() {
       ) : (
         <form onSubmit={onSubmit}>
           <Field label="New password">
-            <Input
-              type="password"
+            <PasswordInput
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required

@@ -1,10 +1,13 @@
 import Link from "next/link";
+import { ArrowRight } from "lucide-react";
 import { BoardIllustration } from "@/components/brand/board-illustration";
 import { Logo } from "@/components/brand/logo";
+import { GuestOnly } from "@/components/guest-only";
 import { buttonClassName } from "@/components/ui/button";
 
 export default function HomePage() {
   return (
+    <GuestOnly>
     <div className="relative min-h-screen overflow-hidden">
       <div className="absolute inset-0 bg-[linear-gradient(105deg,#E9F2FF_0%,#E9F2FF_48%,#0C66E4_48%,#579DFF_100%)] max-lg:bg-[linear-gradient(180deg,#E9F2FF_0%,#E9F2FF_42%,#0C66E4_42%,#579DFF_100%)]" />
       <div
@@ -54,6 +57,7 @@ export default function HomePage() {
               className={buttonClassName({ variant: "primary", size: "lg" })}
             >
               Get started free
+              <ArrowRight className="h-4 w-4" strokeWidth={2} aria-hidden />
             </Link>
             <Link
               href="/login"
@@ -72,5 +76,6 @@ export default function HomePage() {
         </div>
       </main>
     </div>
+    </GuestOnly>
   );
 }
