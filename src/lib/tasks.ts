@@ -35,6 +35,11 @@ export type TaskCard = {
   createdAt?: string;
   assignees: TaskAssignee[];
   labels: TaskLabel[];
+  checklistProgress?: {
+    completed: number;
+    total: number;
+    progress: number;
+  } | null;
 };
 
 export async function createTask(input: {
