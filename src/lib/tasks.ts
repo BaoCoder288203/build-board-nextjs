@@ -40,6 +40,7 @@ export type TaskCard = {
     total: number;
     progress: number;
   } | null;
+  commentsCount?: number;
 };
 
 export async function createTask(input: {
