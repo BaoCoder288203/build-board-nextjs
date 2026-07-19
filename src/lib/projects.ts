@@ -30,6 +30,7 @@ export type BoardSummary = {
 
 export type BoardColumn = {
   id: string;
+  boardId?: string;
   name: string;
   color: string | null;
   position: number;
@@ -37,6 +38,7 @@ export type BoardColumn = {
   isDefault: boolean;
   isDone: boolean;
   tasksCount?: number;
+  tasks?: import("@/lib/tasks").TaskCard[];
 };
 
 export type BoardDetail = BoardSummary & {
@@ -92,4 +94,47 @@ export async function createColumn(input: {
 }) {
   const { data } = await api.post("/columns", input);
   return data.data as BoardColumn & { columnId: string };
+}
+
+export async function updateColumn(
+  columnId: string,
+  input: { name?: string; color?: string | null; isDone?: boolean },
+) {
+  const { data } = await api.patch(`/columns/${columnId}`, input);
+  return data.data as BoardColumn;
+}
+
+export async function copyColumn(columnId: string, name: string) {
+  const { data } = await api.post(`/columns/${columnId}/copy`, { name });
+  return data.data as BoardColumn & { columnId: string };
+}
+
+export async function moveColumn(
+  columnId: string,
+  input: { boardId: string; position: number },
+) {
+  const { data } = await api.post(`/columns/${columnId}/move`, input);
+  return data.data as BoardColumn;
+}
+
+export async function moveColumnTasks(
+  columnId: string,
+  destinationColumnId: string,
+) {
+  const { data } = await api.post(`/columns/${columnId}/move-tasks`, {
+    destinationColumnId,
+  });
+  return data.data as { message: string; count: number };
+}
+
+export async function sortColumn(
+  columnId: string,
+  sortBy: "created_desc" | "created_asc" | "name_asc",
+) {
+  const { data } = await api.post(`/columns/${columnId}/sort`, { sortBy });
+  return data.data as { message: string; count: number };
+}
+
+export async function archiveColumn(columnId: string) {
+  await api.post(`/columns/${columnId}/archive`);
 }
