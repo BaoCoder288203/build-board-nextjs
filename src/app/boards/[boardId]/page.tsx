@@ -3,6 +3,7 @@
 import {
   ArrowLeft,
   Calendar,
+  CheckSquare,
   LogOut,
   Plus,
   Trash2,
@@ -20,6 +21,7 @@ import {
   type BoardCanvasHandle,
 } from "@/components/board/board-canvas-transition";
 import { SwitchBoardsBar } from "@/components/board/switch-boards-bar";
+import { TaskChecklistPanel } from "@/components/board/task-checklist-panel";
 import { Protected } from "@/components/protected";
 import { Button, buttonClassName } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -432,6 +434,12 @@ function BoardViewContent() {
                 {new Date(task.dueDate).toLocaleDateString()}
               </span>
             ) : null}
+            {task.checklistProgress && task.checklistProgress.total > 0 ? (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-bb-muted">
+                <CheckSquare className="h-3 w-3" aria-hidden />
+                {task.checklistProgress.completed}/{task.checklistProgress.total}
+              </span>
+            ) : null}
           </div>
           {task.assignees.length > 0 ? (
             <div className="mt-2 flex -space-x-1.5">
@@ -711,60 +719,106 @@ function BoardViewContent() {
                 <X className="h-5 w-5" aria-hidden />
               </button>
             </div>
-            <form
-              onSubmit={onSaveDetail}
-              className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-4"
-            >
-              <label className="block text-sm font-semibold text-bb-ink">
-                Title
-                <Input
-                  name="title"
-                  defaultValue={selected.title}
-                  required
-                  minLength={3}
-                  className="mt-1.5"
-                />
-              </label>
-              <label className="block text-sm font-semibold text-bb-ink">
-                Description
-                <textarea
-                  name="description"
-                  defaultValue={selected.description ?? ""}
-                  rows={5}
-                  className="mt-1.5 w-full rounded-[10px] border border-bb-border bg-white px-3 py-2 text-sm text-bb-ink outline-none focus:border-bb-blue"
-                />
-              </label>
-              <label className="block text-sm font-semibold text-bb-ink">
-                Priority
-                <select
-                  name="priority"
-                  defaultValue={selected.priority}
-                  className="mt-1.5 h-10 w-full rounded-[10px] border border-bb-border bg-white px-3 text-sm"
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+                <form
+                  id="task-detail-form"
+                  onSubmit={onSaveDetail}
+                  className="flex flex-col gap-4"
                 >
-                  {(["LOW", "MEDIUM", "HIGH", "URGENT"] as TaskPriority[]).map(
-                    (p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ),
-                  )}
-                </select>
-              </label>
-              <label className="block text-sm font-semibold text-bb-ink">
-                Due date
-                <Input
-                  name="dueDate"
-                  type="date"
-                  className="mt-1.5"
-                  defaultValue={
-                    selected.dueDate
-                      ? new Date(selected.dueDate).toISOString().slice(0, 10)
-                      : ""
-                  }
+                  <label className="block text-sm font-semibold text-bb-ink">
+                    Title
+                    <Input
+                      name="title"
+                      defaultValue={selected.title}
+                      required
+                      minLength={3}
+                      className="mt-1.5"
+                    />
+                  </label>
+                  <label className="block text-sm font-semibold text-bb-ink">
+                    Description
+                    <textarea
+                      name="description"
+                      defaultValue={selected.description ?? ""}
+                      rows={5}
+                      className="mt-1.5 w-full rounded-[10px] border border-bb-border bg-white px-3 py-2 text-sm text-bb-ink outline-none focus:border-bb-blue"
+                    />
+                  </label>
+                  <label className="block text-sm font-semibold text-bb-ink">
+                    Priority
+                    <select
+                      name="priority"
+                      defaultValue={selected.priority}
+                      className="mt-1.5 h-10 w-full rounded-[10px] border border-bb-border bg-white px-3 text-sm"
+                    >
+                      {(
+                        ["LOW", "MEDIUM", "HIGH", "URGENT"] as TaskPriority[]
+                      ).map((p) => (
+                        <option key={p} value={p}>
+                          {p}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-sm font-semibold text-bb-ink">
+                    Due date
+                    <Input
+                      name="dueDate"
+                      type="date"
+                      className="mt-1.5"
+                      defaultValue={
+                        selected.dueDate
+                          ? new Date(selected.dueDate)
+                              .toISOString()
+                              .slice(0, 10)
+                          : ""
+                      }
+                    />
+                  </label>
+                </form>
+
+                <TaskChecklistPanel
+                  taskId={selected.id}
+                  onProgressChange={(progress) => {
+                    const checklistProgress = progress
+                      ? {
+                          ...progress,
+                          progress:
+                            progress.total === 0
+                              ? 0
+                              : Math.round(
+                                  (progress.completed / progress.total) * 100,
+                                ),
+                        }
+                      : null;
+                    setSelected((prev) =>
+                      prev ? { ...prev, checklistProgress } : prev,
+                    );
+                    setBoard((prev) => {
+                      if (!prev) return prev;
+                      return {
+                        ...prev,
+                        columns: prev.columns.map((col) => ({
+                          ...col,
+                          tasks: (col.tasks ?? []).map((t) =>
+                            t.id === selected.id
+                              ? { ...t, checklistProgress }
+                              : t,
+                          ),
+                        })),
+                      };
+                    });
+                  }}
                 />
-              </label>
-              <div className="mt-auto flex gap-2 pt-2">
-                <Button type="submit" fullWidth disabled={savingDetail}>
+              </div>
+              <div className="flex gap-2 border-t border-bb-border px-5 py-4">
+                <Button
+                  type="submit"
+                  form="task-detail-form"
+                  fullWidth
+                  disabled={savingDetail}
+                >
                   {savingDetail ? "Saving..." : "Save changes"}
                 </Button>
                 <Button
@@ -775,7 +829,7 @@ function BoardViewContent() {
                   <Trash2 className="h-4 w-4" aria-hidden />
                 </Button>
               </div>
-            </form>
+            </div>
           </aside>
         </div>
       ) : null}
