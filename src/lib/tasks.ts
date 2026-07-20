@@ -41,6 +41,7 @@ export type TaskCard = {
     progress: number;
   } | null;
   commentsCount?: number;
+  attachmentsCount?: number;
 };
 
 export async function createTask(input: {
