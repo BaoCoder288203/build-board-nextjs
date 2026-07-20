@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   Calendar,
   CheckSquare,
-  LogOut,
   MessageSquare,
   Paperclip,
   Plus,
@@ -26,9 +25,11 @@ import { SwitchBoardsBar } from "@/components/board/switch-boards-bar";
 import { TaskAttachmentPanel } from "@/components/board/task-attachment-panel";
 import { TaskChecklistPanel } from "@/components/board/task-checklist-panel";
 import { TaskCommentPanel } from "@/components/board/task-comment-panel";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { Protected } from "@/components/protected";
 import { Button, buttonClassName } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { UserAvatarMenu } from "@/components/user-avatar-menu";
 import {
   BOARD_SHELL_BG,
   peekBoardSwitchPending,
@@ -56,7 +57,6 @@ import {
   type TaskCard,
   type TaskPriority,
 } from "@/lib/tasks";
-import { useAuthStore } from "@/stores/auth-store";
 
 const PRIORITY_STYLE: Record<TaskPriority, string> = {
   LOW: "bg-slate-100 text-slate-700",
@@ -75,8 +75,6 @@ type DragState = {
 function BoardViewContent() {
   const params = useParams<{ boardId: string }>();
   const router = useRouter();
-  const user = useAuthStore((s) => s.user);
-  const logout = useAuthStore((s) => s.logout);
   const boardId = params.boardId;
 
   const [board, setBoard] = useState<BoardDetail | null>(null);
@@ -344,11 +342,6 @@ function BoardViewContent() {
     }
   }
 
-  async function onLogout() {
-    await logout();
-    router.replace("/");
-  }
-
   async function onSwitchBoard(nextBoardId: string) {
     if (nextBoardId === boardId || switchingBoard) return;
     setSwitchingBoard(true);
@@ -521,16 +514,8 @@ function BoardViewContent() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="onDark"
-            size="sm"
-            onClick={onLogout}
-            className="!text-bb-blue"
-            title={user?.fullName}
-          >
-            <LogOut className="h-4 w-4" strokeWidth={2} aria-hidden />
-            Sign out
-          </Button>
+          <NotificationBell variant="onDark" />
+          <UserAvatarMenu variant="onDark" />
         </div>
       </header>
 
