@@ -44,6 +44,10 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (accessTokenMemory) {
     config.headers.Authorization = `Bearer ${accessTokenMemory}`;
   }
+  // Let the browser set multipart boundary for FormData uploads.
+  if (typeof FormData !== "undefined" && config.data instanceof FormData) {
+    delete config.headers["Content-Type"];
+  }
   return config;
 });
 

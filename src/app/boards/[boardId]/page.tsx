@@ -6,6 +6,7 @@ import {
   CheckSquare,
   LogOut,
   MessageSquare,
+  Paperclip,
   Plus,
   Trash2,
   X,
@@ -22,6 +23,7 @@ import {
   type BoardCanvasHandle,
 } from "@/components/board/board-canvas-transition";
 import { SwitchBoardsBar } from "@/components/board/switch-boards-bar";
+import { TaskAttachmentPanel } from "@/components/board/task-attachment-panel";
 import { TaskChecklistPanel } from "@/components/board/task-checklist-panel";
 import { TaskCommentPanel } from "@/components/board/task-comment-panel";
 import { Protected } from "@/components/protected";
@@ -448,6 +450,12 @@ function BoardViewContent() {
                 {task.commentsCount}
               </span>
             ) : null}
+            {(task.attachmentsCount ?? 0) > 0 ? (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-bb-muted">
+                <Paperclip className="h-3 w-3" aria-hidden />
+                {task.attachmentsCount}
+              </span>
+            ) : null}
           </div>
           {task.assignees.length > 0 ? (
             <div className="mt-2 flex -space-x-1.5">
@@ -812,6 +820,29 @@ function BoardViewContent() {
                           tasks: (col.tasks ?? []).map((t) =>
                             t.id === selected.id
                               ? { ...t, checklistProgress }
+                              : t,
+                          ),
+                        })),
+                      };
+                    });
+                  }}
+                />
+
+                <TaskAttachmentPanel
+                  taskId={selected.id}
+                  onCountChange={(count) => {
+                    setSelected((prev) =>
+                      prev ? { ...prev, attachmentsCount: count } : prev,
+                    );
+                    setBoard((prev) => {
+                      if (!prev) return prev;
+                      return {
+                        ...prev,
+                        columns: prev.columns.map((col) => ({
+                          ...col,
+                          tasks: (col.tasks ?? []).map((t) =>
+                            t.id === selected.id
+                              ? { ...t, attachmentsCount: count }
                               : t,
                           ),
                         })),
