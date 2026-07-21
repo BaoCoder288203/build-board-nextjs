@@ -15,11 +15,16 @@ import {
   peekBoardSwitchPending,
   runBoardSwitchTransition,
 } from "@/lib/board-transition";
+import { workspaceCanvasBackground } from "@/lib/visual-identity";
 
 gsap.registerPlugin(useGSAP);
 
 export type BoardCanvasHandle = {
-  switchTo: (boardId: string, navigate: (id: string) => void) => Promise<void>;
+  switchTo: (
+    boardId: string,
+    navigate: (id: string) => void,
+    coverBackground?: string,
+  ) => Promise<void>;
   getElement: () => HTMLDivElement | null;
 };
 
@@ -27,10 +32,14 @@ type Props = {
   boardId: string;
   children: ReactNode;
   className?: string;
+  coverBackground?: string;
 };
 
 export const BoardCanvasTransition = forwardRef<BoardCanvasHandle, Props>(
-  function BoardCanvasTransition({ boardId, children, className = "" }, ref) {
+  function BoardCanvasTransition(
+    { boardId, children, className = "", coverBackground },
+    ref,
+  ) {
     const canvasRef = useRef<HTMLDivElement>(null);
     const switchingRef = useRef(false);
     const [fromSwitch] = useState(() => {
@@ -40,13 +49,15 @@ export const BoardCanvasTransition = forwardRef<BoardCanvasHandle, Props>(
 
     useImperativeHandle(ref, () => ({
       getElement: () => canvasRef.current,
-      switchTo: async (nextId, navigate) => {
+      switchTo: async (nextId, navigate, bg) => {
         if (switchingRef.current || nextId === boardId) return;
         switchingRef.current = true;
         try {
           await runBoardSwitchTransition({
             sourceEl: canvasRef.current,
             navigate: () => navigate(nextId),
+            coverBackground:
+              bg ?? coverBackground ?? workspaceCanvasBackground(null),
           });
         } finally {
           switchingRef.current = false;

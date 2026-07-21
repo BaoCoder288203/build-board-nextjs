@@ -1,21 +1,31 @@
 "use client";
 
-import { Plus, Send, UserMinus } from "lucide-react";
+import {
+  ArrowLeft,
+  ChevronDown,
+  LogOut,
+  Plus,
+  Send,
+  UserMinus,
+  UserPlus,
+} from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/app-shell";
-import { Protected } from "@/components/protected";
+import { ProjectAvatar } from "@/components/visual/project-avatar";
 import { Alert } from "@/components/ui/alert";
 import { Button, buttonClassName } from "@/components/ui/button";
 import { Field } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { navigateWithCover } from "@/lib/route-cover";
 import { toastFromError, toastSuccess } from "@/lib/toast";
 import {
+  finishWorkspaceEnterReveal,
+  peekWorkspaceRevealPending,
+} from "@/lib/workspace-reveal";
+import {
   changeMemberRole,
-  fetchMembers,
-  fetchRoles,
-  fetchWorkspace,
   inviteMember,
   leaveWorkspace,
   removeMember,
@@ -23,25 +33,45 @@ import {
   type WorkspaceMember,
   type WorkspaceRole,
 } from "@/lib/workspaces";
+import { type ProjectSummary } from "@/lib/projects";
 import {
-  fetchProjects,
-  type ProjectSummary,
-} from "@/lib/projects";
+  getWorkspacePageCache,
+  prefetchProjectPage,
+  prefetchWorkspacePage,
+  useEntityCache,
+} from "@/stores/entity-cache";
 
 function WorkspaceDetailContent() {
   const params = useParams<{ workspaceId: string }>();
   const router = useRouter();
   const workspaceId = params.workspaceId;
 
-  const [workspace, setWorkspace] = useState<WorkspaceDetail | null>(null);
-  const [members, setMembers] = useState<WorkspaceMember[]>([]);
-  const [roles, setRoles] = useState<WorkspaceRole[]>([]);
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cached = useEntityCache((s) => s.workspaces[workspaceId]);
+  const [workspace, setWorkspace] = useState<WorkspaceDetail | null>(
+    () => getWorkspacePageCache(workspaceId)?.workspace ?? null,
+  );
+  const [members, setMembers] = useState<WorkspaceMember[]>(
+    () => getWorkspacePageCache(workspaceId)?.members ?? [],
+  );
+  const [roles, setRoles] = useState<WorkspaceRole[]>(
+    () => getWorkspacePageCache(workspaceId)?.roles ?? [],
+  );
+  const [projects, setProjects] = useState<ProjectSummary[]>(
+    () => getWorkspacePageCache(workspaceId)?.projects ?? [],
+  );
+  const [loading, setLoading] = useState(
+    () => !getWorkspacePageCache(workspaceId)?.workspace?.myMembership,
+  );
   const [email, setEmail] = useState("");
   const [roleId, setRoleId] = useState("");
   const [inviting, setInviting] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [debugToken, setDebugToken] = useState<string | null>(null);
+  const [bridgeColor] = useState(() => {
+    if (typeof window === "undefined") return null;
+    return peekWorkspaceRevealPending()?.color ?? null;
+  });
+  const revealFinishedFor = useRef<string | null>(null);
 
   const canInvite = workspace?.myMembership?.permissions.includes("member:invite")
     || workspace?.myMembership?.isOwner;
@@ -55,33 +85,76 @@ function WorkspaceDetailContent() {
     workspace?.myMembership?.permissions.includes("project:create")
     || workspace?.myMembership?.isOwner;
 
-  const load = useCallback(async () => {
-    try {
-      const [ws, mem, roleList, projectList] = await Promise.all([
-        fetchWorkspace(workspaceId),
-        fetchMembers(workspaceId),
-        fetchRoles(workspaceId),
-        fetchProjects(workspaceId),
-      ]);
-      setWorkspace(ws);
-      setMembers(mem.items);
-      setRoles(roleList);
-      setProjects(projectList.items);
+  const applyPage = useCallback(
+    (page: {
+      workspace: WorkspaceDetail;
+      members: WorkspaceMember[];
+      roles: WorkspaceRole[];
+      projects: ProjectSummary[];
+    }) => {
+      setWorkspace(page.workspace);
+      setMembers(page.members);
+      setRoles(page.roles);
+      setProjects(page.projects);
+      useEntityCache.getState().putWorkspacePage(workspaceId, page);
       const defaultRole =
-        roleList.find((r) => r.name === "Developer") ??
-        roleList.find((r) => r.name !== "Owner");
+        page.roles.find((r) => r.name === "Developer") ??
+        page.roles.find((r) => r.name !== "Owner");
       if (defaultRole) setRoleId(defaultRole.id);
+    },
+    [workspaceId],
+  );
+
+  const load = useCallback(async () => {
+    const hasShell = Boolean(
+      getWorkspacePageCache(workspaceId)?.workspace?.myMembership,
+    );
+    if (!hasShell) setLoading(true);
+    try {
+      const page = await prefetchWorkspacePage(workspaceId);
+      applyPage(page);
     } catch (error) {
       toastFromError(error);
-      router.replace("/dashboard");
+      navigateWithCover(() => router.replace("/dashboard"));
     } finally {
       setLoading(false);
     }
-  }, [workspaceId, router]);
+  }, [workspaceId, router, applyPage]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!cached?.workspace) return;
+    setWorkspace(cached.workspace);
+    setMembers(cached.members);
+    setRoles(cached.roles);
+    setProjects(cached.projects);
+    if (cached.workspace.myMembership) setLoading(false);
+  }, [cached]);
+
+  useEffect(() => {
+    // Finish expand-out once per navigation — do not re-run when cache
+    // refreshes `workspace` (that used to kill the hole animation).
+    if (!workspace) return;
+    if (revealFinishedFor.current === workspaceId) return;
+    if (!peekWorkspaceRevealPending()) return;
+
+    let cancelled = false;
+    (async () => {
+      await new Promise<void>((r) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => r())),
+      );
+      if (cancelled) return;
+      if (revealFinishedFor.current === workspaceId) return;
+      revealFinishedFor.current = workspaceId;
+      await finishWorkspaceEnterReveal();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId, workspace]);
 
   async function onInvite(e: React.FormEvent) {
     e.preventDefault();
@@ -123,15 +196,25 @@ function WorkspaceDetailContent() {
     try {
       await leaveWorkspace(workspaceId);
       toastSuccess("Left workspace");
-      router.push("/dashboard");
+      navigateWithCover(() => router.push("/dashboard"));
     } catch (error) {
       toastFromError(error);
     }
   }
 
-  if (loading || !workspace) {
+  const workspaceTheme = workspace
+    ? {
+        themeColorFrom: workspace.themeColorFrom,
+        themeColorTo: workspace.themeColorTo,
+      }
+    : bridgeColor
+      ? { themeColorFrom: bridgeColor, themeColorTo: bridgeColor }
+      : null;
+
+  // Only block paint when we have nothing to show (Trello-style: keep chrome).
+  if (!workspace) {
     return (
-      <AppShell>
+      <AppShell theme={workspaceTheme}>
         <p className="text-sm text-bb-muted">Loading workspace...</p>
       </AppShell>
     );
@@ -143,20 +226,34 @@ function WorkspaceDetailContent() {
     <AppShell
       title={workspace.name}
       subtitle={workspace.description || `/${workspace.slug}`}
+      theme={workspaceTheme}
     >
       <div className="mb-6 flex flex-wrap gap-3">
         <Link
           href="/dashboard"
-          className={buttonClassName({ variant: "secondary", size: "sm" })}
+          className={buttonClassName({
+            variant: "secondary",
+            size: "sm",
+            className: "px-2.5",
+          })}
+          aria-label="All workspaces"
+          title="All workspaces"
         >
-          All workspaces
+          <ArrowLeft className="h-4 w-4" strokeWidth={2} aria-hidden />
         </Link>
         <span className="inline-flex h-9 items-center rounded-lg bg-bb-sky px-3 text-sm font-semibold text-bb-blue">
           {workspace.myMembership?.roleName ?? "Member"}
         </span>
         {!workspace.myMembership?.isOwner ? (
-          <Button variant="ghost" size="sm" onClick={onLeave}>
-            Leave workspace
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={onLeave}
+            aria-label="Leave workspace"
+            title="Leave workspace"
+            className="px-2.5"
+          >
+            <LogOut className="h-4 w-4" strokeWidth={2} aria-hidden />
           </Button>
         ) : null}
       </div>
@@ -191,12 +288,20 @@ function WorkspaceDetailContent() {
                   <Link
                     key={project.id}
                     href={`/projects/${project.id}`}
+                    onMouseEnter={() => {
+                      useEntityCache
+                        .getState()
+                        .seedProjectFromSummary(project);
+                      void prefetchProjectPage(project.id);
+                    }}
                     className="rounded-[12px] border border-bb-border/70 p-4 transition hover:border-bb-blue hover:bg-bb-sky/40"
                   >
                     <div className="flex items-center gap-3">
-                      <span
-                        className="h-10 w-10 rounded-lg"
-                        style={{ background: project.color || "#0C66E4" }}
+                      <ProjectAvatar
+                        name={project.name}
+                        icon={project.icon}
+                        themeColorFrom={project.themeColorFrom ?? project.color}
+                        themeColorTo={project.themeColorTo ?? project.color}
                       />
                       <div>
                         <p className="font-bold text-bb-ink">{project.name}</p>
@@ -266,60 +371,78 @@ function WorkspaceDetailContent() {
 
         <aside className="space-y-4">
           {canInvite ? (
-            <form
-              onSubmit={onInvite}
-              className="rounded-[12px] border border-bb-border/80 bg-bb-surface p-5 shadow-bb"
-            >
-              <h2 className="font-bold text-bb-ink">Invite member</h2>
-              <p className="mt-1 text-sm text-bb-muted">
-                Send an email invite with a role.
-              </p>
-              <div className="mt-4">
-                <Field label="Email">
-                  <Input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                  />
-                </Field>
-                <Field label="Role">
-                  <select
-                    className="h-11 w-full rounded-[10px] border border-bb-border bg-white px-3 text-sm text-bb-ink"
-                    value={roleId}
-                    onChange={(e) => setRoleId(e.target.value)}
-                    required
-                  >
-                    {inviteRoles.map((role) => (
-                      <option key={role.id} value={role.id}>
-                        {role.name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Button type="submit" fullWidth disabled={inviting}>
-                  {inviting ? (
-                    "Sending..."
-                  ) : (
-                    <>
-                      <Send className="h-4 w-4" strokeWidth={2} aria-hidden />
-                      Send invite
-                    </>
-                  )}
-                </Button>
-                {debugToken ? (
-                  <Alert tone="info" className="mt-4 mb-0">
-                    Dev:{" "}
-                    <Link
-                      className="font-semibold text-bb-blue underline"
-                      href={`/workspaces/invitations?token=${debugToken}`}
-                    >
-                      open invite
-                    </Link>
-                  </Alert>
-                ) : null}
+            <div className="rounded-[12px] border border-bb-border/80 bg-bb-surface p-5 shadow-bb">
+              <button
+                type="button"
+                onClick={() => setInviteOpen((open) => !open)}
+                aria-expanded={inviteOpen}
+                className="flex w-full items-center justify-between gap-2 text-left"
+              >
+                <span className="inline-flex items-center gap-2 font-bold text-bb-ink">
+                  <UserPlus className="h-4 w-4" strokeWidth={2} aria-hidden />
+                  Invite member
+                </span>
+                <ChevronDown
+                  className={`h-4 w-4 shrink-0 text-bb-muted transition-transform duration-200 ${
+                    inviteOpen ? "rotate-180" : ""
+                  }`}
+                  strokeWidth={2}
+                  aria-hidden
+                />
+              </button>
+              <div className="bb-collapse" data-open={inviteOpen}>
+                <div className="bb-collapse-inner">
+                  <form onSubmit={onInvite} className="bb-collapse-content pt-4">
+                    <p className="mb-4 text-sm text-bb-muted">
+                      Send an email invite with a role.
+                    </p>
+                    <Field label="Email">
+                      <Input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                      />
+                    </Field>
+                    <Field label="Role">
+                      <select
+                        className="h-11 w-full rounded-[10px] border border-bb-border bg-white px-3 text-sm text-bb-ink"
+                        value={roleId}
+                        onChange={(e) => setRoleId(e.target.value)}
+                        required
+                      >
+                        {inviteRoles.map((role) => (
+                          <option key={role.id} value={role.id}>
+                            {role.name}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Button type="submit" fullWidth disabled={inviting}>
+                      {inviting ? (
+                        "Sending..."
+                      ) : (
+                        <>
+                          <Send className="h-4 w-4" strokeWidth={2} aria-hidden />
+                          Send invite
+                        </>
+                      )}
+                    </Button>
+                    {debugToken ? (
+                      <Alert tone="info" className="mt-4 mb-0">
+                        Dev:{" "}
+                        <Link
+                          className="font-semibold text-bb-blue underline"
+                          href={`/workspaces/invitations?token=${debugToken}`}
+                        >
+                          open invite
+                        </Link>
+                      </Alert>
+                    ) : null}
+                  </form>
+                </div>
               </div>
-            </form>
+            </div>
           ) : null}
 
           <div className="rounded-[12px] border border-bb-border/80 bg-bb-surface p-5 shadow-bb">
@@ -350,9 +473,5 @@ function WorkspaceDetailContent() {
 }
 
 export default function WorkspacePage() {
-  return (
-    <Protected>
-      <WorkspaceDetailContent />
-    </Protected>
-  );
+  return <WorkspaceDetailContent />;
 }

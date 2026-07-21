@@ -26,7 +26,7 @@ import { TaskAttachmentPanel } from "@/components/board/task-attachment-panel";
 import { TaskChecklistPanel } from "@/components/board/task-checklist-panel";
 import { TaskCommentPanel } from "@/components/board/task-comment-panel";
 import { NotificationBell } from "@/components/notifications/notification-bell";
-import { Protected } from "@/components/protected";
+import { AppShell } from "@/components/app-shell";
 import { Button, buttonClassName } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { UserAvatarMenu } from "@/components/user-avatar-menu";
@@ -34,13 +34,21 @@ import {
   BOARD_SHELL_BG,
   peekBoardSwitchPending,
 } from "@/lib/board-transition";
+import { navigateWithCover } from "@/lib/route-cover";
 import { toastFromError, toastSuccess } from "@/lib/toast";
+import {
+  workspaceCanvasBackground,
+  workspaceCanvasStyle,
+  type ThemeColors,
+} from "@/lib/visual-identity";
+import {
+  getBoardPageCache,
+  prefetchBoardPage,
+} from "@/stores/entity-cache";
 import {
   archiveColumn,
   copyColumn,
   createColumn,
-  fetchBoard,
-  fetchBoards,
   moveColumn,
   moveColumnTasks,
   sortColumn,
@@ -77,9 +85,18 @@ function BoardViewContent() {
   const router = useRouter();
   const boardId = params.boardId;
 
-  const [board, setBoard] = useState<BoardDetail | null>(null);
-  const [projectBoards, setProjectBoards] = useState<BoardSummary[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [board, setBoard] = useState<BoardDetail | null>(
+    () => getBoardPageCache(boardId)?.board ?? null,
+  );
+  const [workspaceTheme, setWorkspaceTheme] = useState<ThemeColors | null>(
+    () => getBoardPageCache(boardId)?.workspaceTheme ?? null,
+  );
+  const [projectBoards, setProjectBoards] = useState<BoardSummary[]>(
+    () => getBoardPageCache(boardId)?.projectBoards ?? [],
+  );
+  const [loading, setLoading] = useState(
+    () => !getBoardPageCache(boardId)?.board?.columns?.length,
+  );
   const [columnName, setColumnName] = useState("");
   const [addingColumn, setAddingColumn] = useState(false);
   const [draftByColumn, setDraftByColumn] = useState<Record<string, string>>({});
@@ -97,34 +114,43 @@ function BoardViewContent() {
   const canvasRef = useRef<BoardCanvasHandle>(null);
 
   const load = useCallback(async () => {
+    const cached = getBoardPageCache(boardId);
+    const hasColumns = Boolean(cached?.board?.columns?.length);
+    if (!hasColumns) setLoading(true);
     try {
-      const data = await fetchBoard(boardId);
-      setBoard(data);
+      const page = await prefetchBoardPage(boardId);
+      setBoard(page.board);
+      setProjectBoards(page.projectBoards);
+      setWorkspaceTheme(page.workspaceTheme);
       setSelected((prev) => {
         if (!prev) return null;
-        const flat = data.columns.flatMap((c) => c.tasks ?? []);
+        const flat = page.board.columns.flatMap((c) => c.tasks ?? []);
         return flat.find((t) => t.id === prev.id) ?? null;
       });
-      if (data.projectId) {
-        const boards = await fetchBoards(data.projectId);
-        setProjectBoards(boards.items);
-      }
     } catch (error) {
       toastFromError(error);
-      router.replace("/dashboard");
+      navigateWithCover(() => router.replace("/dashboard"));
     } finally {
       setLoading(false);
     }
   }, [boardId, router]);
 
   useEffect(() => {
-    setLoading(true);
-    setBoard(null);
+    const cached = getBoardPageCache(boardId);
+    if (cached?.board) {
+      setBoard(cached.board);
+      setProjectBoards(cached.projectBoards);
+      setWorkspaceTheme(cached.workspaceTheme);
+      if (cached.board.columns?.length) setLoading(false);
+    } else {
+      setBoard(null);
+      setLoading(true);
+    }
     setSelected(null);
     setDrag(null);
     dragRef.current = null;
     void load();
-  }, [load]);
+  }, [load, boardId]);
 
   useEffect(() => {
     if (!focusAddCardFor) return;
@@ -133,6 +159,9 @@ function BoardViewContent() {
   }, [focusAddCardFor]);
 
   const columns = useMemo(() => board?.columns ?? [], [board]);
+
+  const shellStyle =
+    workspaceCanvasStyle(workspaceTheme) ?? { background: BOARD_SHELL_BG };
 
   function setDragState(next: DragState | null) {
     dragRef.current = next;
@@ -347,9 +376,13 @@ function BoardViewContent() {
     setSwitchingBoard(true);
     try {
       router.prefetch(`/boards/${nextBoardId}`);
-      await canvasRef.current?.switchTo(nextBoardId, (id) => {
-        router.push(`/boards/${id}`);
-      });
+      await canvasRef.current?.switchTo(
+        nextBoardId,
+        (id) => {
+          router.push(`/boards/${id}`);
+        },
+        workspaceCanvasBackground(workspaceTheme),
+      );
     } finally {
       setTimeout(() => setSwitchingBoard(false), 600);
     }
@@ -475,47 +508,48 @@ function BoardViewContent() {
     return nodes;
   }
 
-  if (loading || !board) {
+  if (!board) {
     const switching = peekBoardSwitchPending();
     return (
-      <div
-        className={`flex min-h-screen items-center justify-center text-sm ${
-          switching
-            ? "bg-[#0079BF] text-white/80"
-            : "bg-bb-canvas text-bb-muted"
-        }`}
-        style={switching ? { background: BOARD_SHELL_BG } : undefined}
-      >
-        {switching ? null : "Loading board..."}
-      </div>
+      <AppShell chrome="none" theme={workspaceTheme}>
+        <div
+          className="flex min-h-screen items-center justify-center text-sm text-bb-muted"
+          style={shellStyle}
+        >
+          {switching ? null : "Loading board..."}
+        </div>
+      </AppShell>
     );
   }
 
   return (
-    <div
-      className="flex min-h-screen flex-col"
-      style={{ background: BOARD_SHELL_BG }}
-    >
-      <header className="flex items-center justify-between gap-4 px-4 py-3 text-white">
+    <AppShell chrome="none" theme={workspaceTheme}>
+    <div className="flex min-h-screen flex-col" style={shellStyle}>
+      <header className="flex items-center justify-between gap-4 px-4 py-3 text-bb-ink">
         <div className="flex min-w-0 items-center gap-3">
           <Link
             href={`/projects/${board.projectId}`}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-sm font-semibold hover:bg-white/25"
+            className={buttonClassName({
+              variant: "secondary",
+              size: "sm",
+              className: "px-2.5",
+            })}
+            aria-label="Back to project"
+            title="Back to project"
           >
             <ArrowLeft className="h-4 w-4" strokeWidth={2} aria-hidden />
-            Project
           </Link>
           <div className="min-w-0">
             <h1 className="truncate text-lg font-bold">{board.name}</h1>
-            <p className="truncate text-xs text-white/80">
+            <p className="truncate text-xs text-bb-muted">
               {board.project?.name ?? "Board"} · {board.columns.length} columns ·{" "}
               {board.tasksCount ?? 0} tasks
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <NotificationBell variant="onDark" />
-          <UserAvatarMenu variant="onDark" />
+          <NotificationBell />
+          <UserAvatarMenu />
         </div>
       </header>
 
@@ -523,6 +557,7 @@ function BoardViewContent() {
         ref={canvasRef}
         boardId={boardId}
         className="flex min-h-0 flex-1 flex-col"
+        coverBackground={workspaceCanvasBackground(workspaceTheme)}
       >
       <div className="flex flex-1 gap-3 overflow-x-auto px-4 pb-2">
         {columns.map((column) => {
@@ -533,7 +568,7 @@ function BoardViewContent() {
               key={column.id}
               data-board-column="true"
               className={`relative flex h-fit w-72 shrink-0 flex-col rounded-xl bg-[#F1F2F4] shadow-bb ${
-                isOver ? "ring-2 ring-white/80" : ""
+                isOver ? "ring-2 ring-bb-blue/50" : ""
               }`}
             >
               <div className="relative flex items-center gap-1 px-2 py-2">
@@ -671,20 +706,19 @@ function BoardViewContent() {
 
         <form
           onSubmit={onAddColumn}
-          className="flex h-fit w-72 shrink-0 flex-col gap-2 rounded-xl bg-white/20 p-3 backdrop-blur"
+          className="flex h-fit w-72 shrink-0 flex-col gap-2 rounded-xl border border-bb-border/80 bg-bb-surface p-3 shadow-bb"
         >
           <Input
             value={columnName}
             onChange={(e) => setColumnName(e.target.value)}
             placeholder="Add another list"
-            className="!bg-white"
             required
             minLength={2}
           />
           <button
             type="submit"
             disabled={addingColumn}
-            className={buttonClassName({ variant: "onDark", size: "sm" })}
+            className={buttonClassName({ variant: "primary", size: "sm" })}
           >
             <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
             {addingColumn ? "Adding..." : "Add list"}
@@ -882,13 +916,10 @@ function BoardViewContent() {
         </div>
       ) : null}
     </div>
+    </AppShell>
   );
 }
 
 export default function BoardPage() {
-  return (
-    <Protected>
-      <BoardViewContent />
-    </Protected>
-  );
+  return <BoardViewContent />;
 }

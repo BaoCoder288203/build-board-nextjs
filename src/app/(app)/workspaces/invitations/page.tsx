@@ -3,8 +3,8 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { AppShell } from "@/components/app-shell";
-import { Protected } from "@/components/protected";
 import { Button } from "@/components/ui/button";
+import { navigateWithCover } from "@/lib/route-cover";
 import { toastFromError, toastSuccess } from "@/lib/toast";
 import { acceptInvitation, rejectInvitation } from "@/lib/workspaces";
 
@@ -19,7 +19,9 @@ function InvitationInner() {
     try {
       const result = await acceptInvitation(token);
       toastSuccess("Joined workspace");
-      router.push(`/workspaces/${result.workspaceId}`);
+      navigateWithCover(() =>
+        router.push(`/workspaces/${result.workspaceId}`),
+      );
     } catch (error) {
       toastFromError(error);
     } finally {
@@ -32,7 +34,7 @@ function InvitationInner() {
     try {
       await rejectInvitation(token);
       toastSuccess("Invitation declined");
-      router.push("/dashboard");
+      navigateWithCover(() => router.push("/dashboard"));
     } catch (error) {
       toastFromError(error);
     } finally {
@@ -67,16 +69,14 @@ function InvitationInner() {
 
 export default function InvitationPage() {
   return (
-    <Protected>
-      <Suspense
-        fallback={
-          <div className="flex min-h-screen items-center justify-center text-sm text-bb-muted">
-            Loading invitation...
-          </div>
-        }
-      >
-        <InvitationInner />
-      </Suspense>
-    </Protected>
+    <Suspense
+      fallback={
+        <AppShell>
+          <p className="text-sm text-bb-muted">Loading invitation...</p>
+        </AppShell>
+      }
+    >
+      <InvitationInner />
+    </Suspense>
   );
 }

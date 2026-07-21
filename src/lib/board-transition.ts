@@ -1,9 +1,10 @@
 import gsap from "gsap";
 
 const FLAG_KEY = "bb-board-switch";
+const COVER_BG_KEY = "bb-board-switch-bg";
 const COVER_ID = "bb-board-switch-cover";
-/** Matches board page shell — never flash canvas white between boards. */
-export const BOARD_SHELL_BG = "#0079BF";
+/** Soft canvas fallback — matches workspace-tinted board shell. */
+export const BOARD_SHELL_BG = "#f7f8f9";
 
 let coverReleaseTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -12,9 +13,12 @@ export function prefersReducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-export function markBoardSwitchPending() {
+export function markBoardSwitchPending(coverBackground?: string) {
   try {
     sessionStorage.setItem(FLAG_KEY, "1");
+    if (coverBackground) {
+      sessionStorage.setItem(COVER_BG_KEY, coverBackground);
+    }
   } catch {
     // ignore
   }
@@ -38,9 +42,19 @@ export function consumeBoardSwitchPending() {
   }
 }
 
+function peekCoverBackground() {
+  try {
+    return sessionStorage.getItem(COVER_BG_KEY) ?? BOARD_SHELL_BG;
+  } catch {
+    return BOARD_SHELL_BG;
+  }
+}
+
 /** Full-viewport board-colored veil that survives route remounts. */
-export function ensureBoardSwitchCover() {
+export function ensureBoardSwitchCover(background?: string) {
   if (typeof document === "undefined") return null;
+
+  const bg = background ?? peekCoverBackground();
 
   let el = document.getElementById(COVER_ID);
   if (!el) {
@@ -51,12 +65,13 @@ export function ensureBoardSwitchCover() {
       "position:fixed",
       "inset:0",
       "z-index:45",
-      `background:${BOARD_SHELL_BG}`,
+      `background:${bg}`,
       "pointer-events:none",
       "opacity:1",
     ].join(";");
     document.body.appendChild(el);
   } else {
+    el.style.background = bg;
     gsap.killTweensOf(el);
     gsap.set(el, { opacity: 1 });
   }
@@ -218,10 +233,11 @@ export function animateBoardEnter(
 export async function runBoardSwitchTransition(options: {
   sourceEl: HTMLElement | null;
   navigate: () => void;
+  coverBackground?: string;
 }) {
-  const { sourceEl, navigate } = options;
-  markBoardSwitchPending();
-  ensureBoardSwitchCover();
+  const { sourceEl, navigate, coverBackground } = options;
+  markBoardSwitchPending(coverBackground);
+  ensureBoardSwitchCover(coverBackground);
 
   if (!sourceEl || prefersReducedMotion()) {
     navigate();

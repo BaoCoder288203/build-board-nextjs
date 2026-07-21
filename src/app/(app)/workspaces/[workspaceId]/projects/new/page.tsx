@@ -1,35 +1,59 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
-import { Protected } from "@/components/protected";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { createWorkspace, slugify } from "@/lib/workspaces";
+import { createProject } from "@/lib/projects";
+import { navigateWithCover } from "@/lib/route-cover";
+import { fetchWorkspace, slugify, type WorkspaceDetail } from "@/lib/workspaces";
 import { toastFromError, toastSuccess } from "@/lib/toast";
 
-function NewWorkspaceContent() {
+function NewProjectContent() {
+  const params = useParams<{ workspaceId: string }>();
   const router = useRouter();
+  const workspaceId = params.workspaceId;
+
+  const [workspace, setWorkspace] = useState<WorkspaceDetail | null>(null);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [description, setDescription] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const ws = await fetchWorkspace(workspaceId);
+        if (!cancelled) setWorkspace(ws);
+      } catch (error) {
+        toastFromError(error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     try {
-      const ws = await createWorkspace({
+      const project = await createProject({
+        workspaceId,
         name,
         slug: slug || slugify(name),
         description: description || undefined,
+        visibility: "WORKSPACE",
       });
-      toastSuccess("Workspace created", ws.name);
-      router.push(`/workspaces/${ws.id ?? ws.workspaceId}`);
+      toastSuccess("Project created", project.name);
+      navigateWithCover(() =>
+        router.push(`/projects/${project.id ?? project.projectId}`),
+      );
     } catch (error) {
       toastFromError(error);
     } finally {
@@ -37,10 +61,18 @@ function NewWorkspaceContent() {
     }
   }
 
+  const workspaceTheme = workspace
+    ? {
+        themeColorFrom: workspace.themeColorFrom,
+        themeColorTo: workspace.themeColorTo,
+      }
+    : null;
+
   return (
     <AppShell
-      title="Create workspace"
-      subtitle="A workspace holds your projects, boards, and teammates."
+      title="Create project"
+      subtitle="Projects hold boards, columns, and upcoming tasks."
+      theme={workspaceTheme}
     >
       <form
         onSubmit={onSubmit}
@@ -55,7 +87,7 @@ function NewWorkspaceContent() {
             }}
             required
             minLength={3}
-            placeholder="Acme Engineering"
+            placeholder="Website Redesign"
           />
         </Field>
         <Field label="Slug">
@@ -65,26 +97,24 @@ function NewWorkspaceContent() {
               setSlugTouched(true);
               setSlug(e.target.value.toLowerCase());
             }}
-            required
             minLength={3}
-            pattern="^[a-z0-9]+(?:-[a-z0-9]+)*$"
-            placeholder="acme-engineering"
+            placeholder="website-redesign"
           />
         </Field>
         <Field label="Description">
           <Input
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            maxLength={500}
+            maxLength={1000}
             placeholder="Optional"
           />
         </Field>
         <div className="mt-2 flex gap-3">
           <Button type="submit" disabled={loading}>
-            {loading ? "Creating..." : "Create workspace"}
+            {loading ? "Creating..." : "Create project"}
           </Button>
           <Link
-            href="/dashboard"
+            href={`/workspaces/${workspaceId}`}
             className="inline-flex h-11 items-center px-4 text-sm font-semibold text-bb-muted hover:text-bb-ink"
           >
             Cancel
@@ -95,10 +125,6 @@ function NewWorkspaceContent() {
   );
 }
 
-export default function NewWorkspacePage() {
-  return (
-    <Protected>
-      <NewWorkspaceContent />
-    </Protected>
-  );
+export default function NewProjectPage() {
+  return <NewProjectContent />;
 }
