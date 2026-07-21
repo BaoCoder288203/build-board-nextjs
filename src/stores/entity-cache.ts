@@ -136,7 +136,21 @@ export const useEntityCache = create<EntityCacheState>((set, get) => ({
       set((s) => ({
         projects: {
           ...s.projects,
-          [project.id]: { ...prev, project },
+          [project.id]: {
+            ...prev,
+            // Merge summary into detail — never wipe permission/detail fields.
+            project: {
+              ...prev.project,
+              ...project,
+              canManage: prev.project.canManage ?? project.canManage,
+              myRole: prev.project.myRole ?? project.myRole,
+              defaultBoardId:
+                project.defaultBoardId ?? prev.project.defaultBoardId,
+              boardsCount: project.boardsCount ?? prev.project.boardsCount,
+              membersCount: project.membersCount ?? prev.project.membersCount,
+              tasksCount: project.tasksCount ?? prev.project.tasksCount,
+            },
+          },
         },
       }));
       return;

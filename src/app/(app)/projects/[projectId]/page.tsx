@@ -163,7 +163,9 @@ function ProjectDetailContent() {
               {boards.length} boards · {project.tasksCount ?? 0} tasks
             </p>
           </div>
-          {project.canManage ? (
+          {project.canManage ||
+          project.myRole === "OWNER" ||
+          project.myRole === "PROJECT_MANAGER" ? (
             <Button
               variant="primary"
               size="sm"

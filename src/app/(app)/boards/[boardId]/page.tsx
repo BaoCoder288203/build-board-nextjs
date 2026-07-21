@@ -25,6 +25,7 @@ import { SwitchBoardsBar } from "@/components/board/switch-boards-bar";
 import { TaskAttachmentPanel } from "@/components/board/task-attachment-panel";
 import { TaskChecklistPanel } from "@/components/board/task-checklist-panel";
 import { TaskCommentPanel } from "@/components/board/task-comment-panel";
+import { BoardActivityButton } from "@/components/activity/board-activity-button";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { AppShell } from "@/components/app-shell";
 import { Button, buttonClassName } from "@/components/ui/button";
@@ -548,6 +549,13 @@ function BoardViewContent() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {board.project?.workspaceId ? (
+            <BoardActivityButton
+              workspaceId={board.project.workspaceId}
+              boardId={boardId}
+              projectId={board.projectId}
+            />
+          ) : null}
           <NotificationBell />
           <UserAvatarMenu />
         </div>
