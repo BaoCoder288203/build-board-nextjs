@@ -1,35 +1,41 @@
 "use client";
 
-import { Home, Plus, RefreshCw } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, type MouseEvent } from "react";
 import { AppShell } from "@/components/app-shell";
-import { Protected } from "@/components/protected";
+import { WorkspaceAvatar } from "@/components/visual/workspace-avatar";
 import { Button, buttonClassName } from "@/components/ui/button";
-import {
-  fetchMyWorkspaces,
-  type WorkspaceSummary,
-} from "@/lib/workspaces";
+import { runWorkspaceEnterReveal } from "@/lib/workspace-reveal";
+import { type WorkspaceSummary } from "@/lib/workspaces";
 import { toastFromError } from "@/lib/toast";
 import { useAuthStore } from "@/stores/auth-store";
-
-const covers = [
-  "from-[#0C66E4] to-[#579DFF]",
-  "from-[#216E4E] to-[#4BCE97]",
-  "from-[#C25100] to-[#F5CD47]",
-  "from-[#172B4D] to-[#626F86]",
-];
+import {
+  prefetchWorkspaceList,
+  prefetchWorkspacePage,
+  useEntityCache,
+} from "@/stores/entity-cache";
 
 function DashboardContent() {
   const user = useAuthStore((s) => s.user);
-  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
-  const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const cachedList = useEntityCache((s) => s.workspaceList);
+  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>(
+    () => useEntityCache.getState().workspaceList ?? [],
+  );
+  const [loading, setLoading] = useState(
+    () => !useEntityCache.getState().workspaceList,
+  );
+  const [revealing, setRevealing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const hasCache = Boolean(useEntityCache.getState().workspaceList);
+      if (!hasCache) setLoading(true);
       try {
-        const data = await fetchMyWorkspaces();
+        const data = await prefetchWorkspaceList();
         if (!cancelled) setWorkspaces(data.items);
       } catch (error) {
         toastFromError(error);
@@ -41,6 +47,35 @@ function DashboardContent() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (cachedList) setWorkspaces(cachedList);
+  }, [cachedList]);
+
+  async function openWorkspace(
+    ws: WorkspaceSummary,
+    event: MouseEvent<HTMLElement>,
+  ) {
+    if (revealing) return;
+    setRevealing(true);
+    const href = `/workspaces/${ws.id}`;
+    const color = ws.themeColorFrom || ws.themeColorTo || "#0C66E4";
+    useEntityCache.getState().seedWorkspaceFromSummary(ws);
+    void prefetchWorkspacePage(ws.id);
+    router.prefetch(href);
+    try {
+      await runWorkspaceEnterReveal({
+        event: { clientX: event.clientX, clientY: event.clientY },
+        originEl: event.currentTarget,
+        color,
+        navigate: () => router.push(href),
+      });
+    } catch {
+      router.push(href);
+    } finally {
+      setTimeout(() => setRevealing(false), 800);
+    }
+  }
 
   return (
     <AppShell
@@ -57,7 +92,7 @@ function DashboardContent() {
         </Link>
       </div>
 
-      {loading ? (
+      {loading && workspaces.length === 0 ? (
         <p className="text-sm text-bb-muted">Loading workspaces...</p>
       ) : workspaces.length === 0 ? (
         <div className="rounded-[12px] border border-dashed border-bb-border bg-bb-sky/40 px-6 py-16 text-center">
@@ -76,14 +111,22 @@ function DashboardContent() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {workspaces.map((ws, index) => (
-            <Link
+            <button
               key={ws.id}
-              href={`/workspaces/${ws.id}`}
-              className="bb-animate-card group overflow-hidden rounded-[12px] border border-bb-border/80 bg-bb-surface shadow-bb transition duration-200 hover:-translate-y-0.5 hover:shadow-bb-lg"
+              type="button"
+              disabled={revealing}
+              onMouseEnter={() => {
+                useEntityCache.getState().seedWorkspaceFromSummary(ws);
+                void prefetchWorkspacePage(ws.id);
+                router.prefetch(`/workspaces/${ws.id}`);
+              }}
+              onClick={(e) => void openWorkspace(ws, e)}
+              className="bb-animate-card group overflow-hidden rounded-[12px] border border-bb-border/80 bg-bb-surface text-left shadow-bb transition duration-200 hover:-translate-y-0.5 hover:shadow-bb-lg disabled:pointer-events-none"
               style={{ animationDelay: `${index * 60}ms` }}
             >
-              <div
-                className={`h-28 bg-gradient-to-br ${covers[index % covers.length]} transition duration-200 group-hover:brightness-105`}
+              <WorkspaceAvatar
+                themeColorFrom={ws.themeColorFrom}
+                themeColorTo={ws.themeColorTo}
               />
               <div className="px-4 py-3">
                 <h2 className="font-bold text-bb-ink">{ws.name}</h2>
@@ -92,7 +135,7 @@ function DashboardContent() {
                   {ws.projectsCount ?? 0} projects
                 </p>
               </div>
-            </Link>
+            </button>
           ))}
 
           <Link
@@ -120,9 +163,5 @@ function DashboardContent() {
 }
 
 export default function DashboardPage() {
-  return (
-    <Protected>
-      <DashboardContent />
-    </Protected>
-  );
+  return <DashboardContent />;
 }

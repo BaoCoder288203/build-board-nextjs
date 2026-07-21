@@ -8,6 +8,8 @@ export type WorkspaceSummary = {
   slug: string;
   description: string | null;
   logoUrl: string | null;
+  themeColorFrom?: string | null;
+  themeColorTo?: string | null;
   membersCount?: number;
   projectsCount?: number;
   myRole?: string | null;

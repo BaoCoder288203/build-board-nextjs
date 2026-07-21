@@ -8,7 +8,10 @@ export type ProjectSummary = {
   name: string;
   slug: string;
   description: string | null;
+  icon?: string | null;
   color: string | null;
+  themeColorFrom?: string | null;
+  themeColorTo?: string | null;
   visibility: string;
   boardsCount?: number;
   membersCount?: number;
@@ -23,6 +26,7 @@ export type BoardSummary = {
   name: string;
   description: string | null;
   color: string | null;
+  coverUrl?: string | null;
   isDefault: boolean;
   columnsCount?: number;
   tasksCount?: number;
