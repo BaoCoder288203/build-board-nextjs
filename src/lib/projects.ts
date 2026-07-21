@@ -18,6 +18,7 @@ export type ProjectSummary = {
   tasksCount?: number;
   defaultBoardId?: string | null;
   canManage?: boolean;
+  myRole?: string | null;
 };
 
 export type BoardSummary = {
