@@ -110,11 +110,49 @@ body {
   animation: bb-card-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+.bb-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.bb-collapse[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+
+.bb-collapse-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.bb-collapse-content {
+  transition:
+    opacity 0.28s ease,
+    transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.bb-collapse[data-open="true"] .bb-collapse-content {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .bb-animate-fade-up,
   .bb-animate-fade-in,
   .bb-animate-float,
   .bb-animate-card {
     animation: none;
+  }
+
+  .bb-collapse {
+    transition: none;
+  }
+
+  .bb-collapse-content {
+    transition: none;
+    opacity: 1;
+    transform: none;
   }
 }
