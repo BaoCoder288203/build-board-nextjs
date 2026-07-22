@@ -20,6 +20,8 @@ type Props = {
   taskId: string;
   workspaceId?: string | null;
   onCountChange?: (count: number) => void;
+  /** sidebar = hide section title (modal column already has one) */
+  variant?: "full" | "sidebar";
 };
 
 function initials(name: string) {
@@ -43,6 +45,7 @@ export function TaskCommentPanel({
   taskId,
   workspaceId,
   onCountChange,
+  variant = "full",
 }: Props) {
   const user = useAuthStore((s) => s.user);
   const [comments, setComments] = useState<TaskComment[]>([]);
@@ -372,17 +375,19 @@ export function TaskCommentPanel({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <MessageSquare className="h-4 w-4 text-bb-muted" aria-hidden />
-        <h3 className="text-sm font-bold text-bb-ink">
-          Comments
-          {comments.length > 0 ? (
-            <span className="ml-1 font-semibold text-bb-muted">
-              ({comments.length})
-            </span>
-          ) : null}
-        </h3>
-      </div>
+      {variant === "full" ? (
+        <div className="flex items-center gap-2">
+          <MessageSquare className="h-4 w-4 text-bb-muted" aria-hidden />
+          <h3 className="text-sm font-bold text-bb-ink">
+            Comments
+            {comments.length > 0 ? (
+              <span className="ml-1 font-semibold text-bb-muted">
+                ({comments.length})
+              </span>
+            ) : null}
+          </h3>
+        </div>
+      ) : null}
 
       <ul className="space-y-2">
         {comments.length === 0 ? (

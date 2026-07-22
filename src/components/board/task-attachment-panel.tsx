@@ -23,6 +23,8 @@ import { toastFromError, toastSuccess } from "@/lib/toast";
 type Props = {
   taskId: string;
   onCountChange?: (count: number) => void;
+  /** full = upload + list; upload = dropzone only; list = files only */
+  variant?: "full" | "upload" | "list";
 };
 
 function typeIcon(fileType: TaskAttachment["fileType"]) {
@@ -37,7 +39,11 @@ function typeTint(fileType: TaskAttachment["fileType"]) {
   return "bg-amber-100 text-amber-800";
 }
 
-export function TaskAttachmentPanel({ taskId, onCountChange }: Props) {
+export function TaskAttachmentPanel({
+  taskId,
+  onCountChange,
+  variant = "full",
+}: Props) {
   const [items, setItems] = useState<TaskAttachment[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -96,10 +102,175 @@ export function TaskAttachmentPanel({ taskId, onCountChange }: Props) {
     }
   }
 
-  if (loading) {
+  if (loading && variant !== "upload") {
     return (
       <div className="rounded-xl border border-bb-border bg-bb-sky/40 px-3 py-4 text-sm text-bb-muted">
         Loading attachments...
+      </div>
+    );
+  }
+
+  const fileInput = (
+    <input
+      ref={inputRef}
+      type="file"
+      className="hidden"
+      multiple
+      onChange={(e) => {
+        if (e.target.files) void uploadFiles(e.target.files);
+      }}
+    />
+  );
+
+  const dropzone = (
+    <div
+      onDragEnter={(e) => {
+        e.preventDefault();
+        setDragOver(true);
+      }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragOver(true);
+      }}
+      onDragLeave={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        if (e.dataTransfer.files?.length) {
+          void uploadFiles(e.dataTransfer.files);
+        }
+      }}
+      className={`rounded-xl border border-dashed px-3 py-4 text-center transition ${
+        dragOver
+          ? "border-bb-blue bg-bb-sky"
+          : "border-bb-border bg-[#F8F9FB]"
+      }`}
+    >
+      <p className="text-sm font-semibold text-bb-ink">
+        Drop files here, or{" "}
+        <button
+          type="button"
+          className="text-bb-blue underline-offset-2 hover:underline"
+          onClick={() => inputRef.current?.click()}
+        >
+          browse
+        </button>
+      </p>
+      <p className="mt-1 text-[11px] text-bb-muted">
+        Images & docs up to 10MB · Videos up to 100MB
+      </p>
+      {uploading ? (
+        <p className="mt-2 text-xs font-semibold text-bb-blue">Uploading…</p>
+      ) : null}
+    </div>
+  );
+
+  const list = (
+    <ul className="space-y-2">
+      {items.map((item) => {
+        const Icon = typeIcon(item.fileType);
+        const isImage = item.fileType === "IMAGE";
+        const href = item.fileUrl || item.url;
+        return (
+          <li
+            key={item.id}
+            className="group flex gap-3 rounded-xl border border-bb-border bg-white p-2.5 shadow-sm transition hover:border-bb-blue/30"
+          >
+            {isImage ? (
+              <a
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-bb-sky ring-1 ring-bb-border/60"
+                title="Preview"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={item.thumbnailUrl || href}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              </a>
+            ) : (
+              <div
+                className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-lg ${typeTint(item.fileType)}`}
+              >
+                <Icon className="h-6 w-6" aria-hidden />
+              </div>
+            )}
+
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-bb-ink">
+                {item.originalName}
+              </p>
+              <p className="mt-0.5 text-[11px] text-bb-muted">
+                {item.fileType.toLowerCase()} · {formatBytes(item.size)}
+                {item.uploader ? ` · ${item.uploader.fullName}` : ""}
+                {" · "}
+                {new Date(item.createdAt).toLocaleDateString()}
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-3">
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-semibold text-bb-blue hover:underline"
+                >
+                  Open
+                </a>
+                <a
+                  href={href}
+                  download={item.originalName}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-bb-muted hover:text-bb-ink"
+                >
+                  <Download className="h-3 w-3" aria-hidden />
+                  Download
+                </a>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              disabled={busyId === item.id}
+              onClick={() => void onDelete(item.id)}
+              className="self-start rounded-lg p-1.5 text-bb-muted opacity-70 transition hover:bg-bb-danger-bg hover:text-bb-danger group-hover:opacity-100"
+              aria-label="Delete attachment"
+            >
+              <Trash2 className="h-4 w-4" aria-hidden />
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+
+  if (variant === "upload") {
+    return (
+      <div>
+        <p className="mb-2 text-xs font-bold text-bb-ink">Attach files</p>
+        {dropzone}
+        {fileInput}
+      </div>
+    );
+  }
+
+  if (variant === "list") {
+    if (loading || items.length === 0) return null;
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Paperclip className="h-4 w-4 text-bb-muted" aria-hidden />
+          <h3 className="text-sm font-bold text-bb-ink">
+            Attachments
+            <span className="ml-1 font-semibold text-bb-muted">
+              ({items.length})
+            </span>
+          </h3>
+        </div>
+        {list}
       </div>
     );
   }
@@ -128,139 +299,17 @@ export function TaskAttachmentPanel({ taskId, onCountChange }: Props) {
           <Upload className="h-3.5 w-3.5" aria-hidden />
           {uploading ? "Uploading..." : "Add"}
         </Button>
-        <input
-          ref={inputRef}
-          type="file"
-          className="hidden"
-          multiple
-          onChange={(e) => {
-            if (e.target.files) void uploadFiles(e.target.files);
-          }}
-        />
+        {fileInput}
       </div>
 
-      <div
-        onDragEnter={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
-        onDragLeave={(e) => {
-          e.preventDefault();
-          setDragOver(false);
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragOver(false);
-          if (e.dataTransfer.files?.length) {
-            void uploadFiles(e.dataTransfer.files);
-          }
-        }}
-        className={`rounded-xl border border-dashed px-3 py-4 text-center transition ${
-          dragOver
-            ? "border-bb-blue bg-bb-sky"
-            : "border-bb-border bg-[#F8F9FB]"
-        }`}
-      >
-        <p className="text-sm font-semibold text-bb-ink">
-          Drop files here, or{" "}
-          <button
-            type="button"
-            className="text-bb-blue underline-offset-2 hover:underline"
-            onClick={() => inputRef.current?.click()}
-          >
-            browse
-          </button>
-        </p>
-        <p className="mt-1 text-[11px] text-bb-muted">
-          Images & docs up to 10MB · Videos up to 100MB
-        </p>
-      </div>
+      {dropzone}
 
       {items.length === 0 ? (
         <p className="px-1 text-center text-sm text-bb-muted">
           No attachments yet
         </p>
       ) : (
-        <ul className="space-y-2">
-          {items.map((item) => {
-            const Icon = typeIcon(item.fileType);
-            const isImage = item.fileType === "IMAGE";
-            const href = item.fileUrl || item.url;
-            return (
-              <li
-                key={item.id}
-                className="group flex gap-3 rounded-xl border border-bb-border bg-white p-2.5 shadow-sm transition hover:border-bb-blue/30"
-              >
-                {isImage ? (
-                  <a
-                    href={href}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-bb-sky ring-1 ring-bb-border/60"
-                    title="Preview"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={item.thumbnailUrl || href}
-                      alt=""
-                      className="h-full w-full object-cover"
-                    />
-                  </a>
-                ) : (
-                  <div
-                    className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-lg ${typeTint(item.fileType)}`}
-                  >
-                    <Icon className="h-6 w-6" aria-hidden />
-                  </div>
-                )}
-
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-bb-ink">
-                    {item.originalName}
-                  </p>
-                  <p className="mt-0.5 text-[11px] text-bb-muted">
-                    {item.fileType.toLowerCase()} · {formatBytes(item.size)}
-                    {item.uploader ? ` · ${item.uploader.fullName}` : ""}
-                    {" · "}
-                    {new Date(item.createdAt).toLocaleDateString()}
-                  </p>
-                  <div className="mt-1.5 flex flex-wrap gap-3">
-                    <a
-                      href={href}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs font-semibold text-bb-blue hover:underline"
-                    >
-                      Open
-                    </a>
-                    <a
-                      href={href}
-                      download={item.originalName}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-bb-muted hover:text-bb-ink"
-                    >
-                      <Download className="h-3 w-3" aria-hidden />
-                      Download
-                    </a>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  disabled={busyId === item.id}
-                  onClick={() => void onDelete(item.id)}
-                  className="self-start rounded-lg p-1.5 text-bb-muted opacity-70 transition hover:bg-bb-danger-bg hover:text-bb-danger group-hover:opacity-100"
-                  aria-label="Delete attachment"
-                >
-                  <Trash2 className="h-4 w-4" aria-hidden />
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+        list
       )}
     </div>
   );

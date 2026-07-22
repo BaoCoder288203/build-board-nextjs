@@ -106,6 +106,21 @@ export async function fetchProjectLabels(projectId: string) {
   return data.data as { items: TaskLabel[] };
 }
 
+export async function createProjectLabel(input: {
+  projectId: string;
+  name: string;
+  color: string;
+  taskId?: string;
+}) {
+  const { data } = await api.post("/tasks/labels", input);
+  return data.data as { label: TaskLabel; task: TaskCard | null };
+}
+
+export async function deleteProjectLabel(labelId: string) {
+  const { data } = await api.delete(`/tasks/labels/${labelId}`);
+  return data.data as { id: string; projectId: string };
+}
+
 export async function addTaskLabel(taskId: string, labelId: string) {
   const { data } = await api.post(`/tasks/${taskId}/labels`, { labelId });
   return data.data as TaskCard;

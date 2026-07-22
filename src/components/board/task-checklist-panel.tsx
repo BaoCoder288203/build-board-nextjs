@@ -22,6 +22,9 @@ type Props = {
     completed: number;
     total: number;
   } | null) => void;
+  /** full = lists + create form; lists = body only; create unused (modal has own) */
+  variant?: "full" | "lists";
+  onEmpty?: () => void;
 };
 
 function sumProgress(lists: Checklist[]) {
@@ -30,7 +33,12 @@ function sumProgress(lists: Checklist[]) {
   return total > 0 ? { completed, total } : null;
 }
 
-export function TaskChecklistPanel({ taskId, onProgressChange }: Props) {
+export function TaskChecklistPanel({
+  taskId,
+  onProgressChange,
+  variant = "full",
+  onEmpty,
+}: Props) {
   const [lists, setLists] = useState<Checklist[]>([]);
   const [loading, setLoading] = useState(true);
   const [newListTitle, setNewListTitle] = useState("");
@@ -39,12 +47,15 @@ export function TaskChecklistPanel({ taskId, onProgressChange }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const onProgressChangeRef = useRef(onProgressChange);
   onProgressChangeRef.current = onProgressChange;
+  const onEmptyRef = useRef(onEmpty);
+  onEmptyRef.current = onEmpty;
 
   const load = useCallback(async () => {
     try {
       const { items } = await fetchChecklists(taskId);
       setLists(items);
       onProgressChangeRef.current?.(sumProgress(items));
+      if (items.length === 0) onEmptyRef.current?.();
     } catch (error) {
       toastFromError(error);
     } finally {
@@ -142,11 +153,16 @@ export function TaskChecklistPanel({ taskId, onProgressChange }: Props) {
   }
 
   if (loading) {
+    if (variant === "lists") return null;
     return (
       <div className="rounded-xl border border-bb-border bg-bb-sky/40 px-3 py-4 text-sm text-bb-muted">
         Loading checklists...
       </div>
     );
+  }
+
+  if (variant === "lists" && lists.length === 0) {
+    return null;
   }
 
   return (
@@ -278,19 +294,21 @@ export function TaskChecklistPanel({ taskId, onProgressChange }: Props) {
         </section>
       ))}
 
-      <form onSubmit={onAddList} className="flex gap-2">
-        <Input
-          value={newListTitle}
-          onChange={(e) => setNewListTitle(e.target.value)}
-          placeholder="Add a checklist"
-          className="!text-sm"
-          minLength={2}
-          required
-        />
-        <Button type="submit" size="sm" disabled={addingList}>
-          {addingList ? "..." : "Add"}
-        </Button>
-      </form>
+      {variant === "full" ? (
+        <form onSubmit={onAddList} className="flex gap-2">
+          <Input
+            value={newListTitle}
+            onChange={(e) => setNewListTitle(e.target.value)}
+            placeholder="Add a checklist"
+            className="!text-sm"
+            minLength={2}
+            required
+          />
+          <Button type="submit" size="sm" disabled={addingList}>
+            {addingList ? "..." : "Add"}
+          </Button>
+        </form>
+      ) : null}
     </div>
   );
 }
