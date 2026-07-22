@@ -7,8 +7,6 @@ import {
   MessageSquare,
   Paperclip,
   Plus,
-  Trash2,
-  X,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -22,13 +20,11 @@ import {
   type BoardCanvasHandle,
 } from "@/components/board/board-canvas-transition";
 import { SwitchBoardsBar } from "@/components/board/switch-boards-bar";
-import { TaskAttachmentPanel } from "@/components/board/task-attachment-panel";
-import { TaskChecklistPanel } from "@/components/board/task-checklist-panel";
-import { TaskCommentPanel } from "@/components/board/task-comment-panel";
+import { TaskDetailModal } from "@/components/board/task-detail-modal";
 import { BoardActivityButton } from "@/components/activity/board-activity-button";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { AppShell } from "@/components/app-shell";
-import { Button, buttonClassName } from "@/components/ui/button";
+import { buttonClassName } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { UserAvatarMenu } from "@/components/user-avatar-menu";
 import {
@@ -62,7 +58,6 @@ import {
   createTask,
   deleteTask,
   moveTask,
-  updateTask,
   type TaskCard,
   type TaskPriority,
 } from "@/lib/tasks";
@@ -103,7 +98,6 @@ function BoardViewContent() {
   const [draftByColumn, setDraftByColumn] = useState<Record<string, string>>({});
   const [creatingFor, setCreatingFor] = useState<string | null>(null);
   const [selected, setSelected] = useState<TaskCard | null>(null);
-  const [savingDetail, setSavingDetail] = useState(false);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [menuColumnId, setMenuColumnId] = useState<string | null>(null);
   const [editingColumnId, setEditingColumnId] = useState<string | null>(null);
@@ -336,27 +330,20 @@ function BoardViewContent() {
     setDragState(null);
   }
 
-  async function onSaveDetail(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!selected) return;
-    const form = new FormData(e.currentTarget);
-    setSavingDetail(true);
-    try {
-      const dueRaw = String(form.get("dueDate") ?? "");
-      const updated = await updateTask(selected.id, {
-        title: String(form.get("title") ?? selected.title),
-        description: String(form.get("description") ?? "") || null,
-        priority: String(form.get("priority") ?? selected.priority) as TaskPriority,
-        dueDate: dueRaw ? new Date(dueRaw).toISOString() : null,
-      });
-      setSelected(updated);
-      toastSuccess("Task updated");
-      await load();
-    } catch (error) {
-      toastFromError(error);
-    } finally {
-      setSavingDetail(false);
-    }
+  function applyTaskUpdate(updated: TaskCard) {
+    setSelected(updated);
+    setBoard((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        columns: prev.columns.map((col) => ({
+          ...col,
+          tasks: (col.tasks ?? []).map((t) =>
+            t.id === updated.id ? { ...t, ...updated } : t,
+          ),
+        })),
+      };
+    });
   }
 
   async function onDeleteTask() {
@@ -740,188 +727,83 @@ function BoardViewContent() {
         disabled={switchingBoard}
       />
       </BoardCanvasTransition>
-      {selected ? (
-        <div className="fixed inset-0 z-40 flex justify-end bg-black/40">
-          <button
-            type="button"
-            aria-label="Close task detail"
-            className="flex-1"
-            onClick={() => setSelected(null)}
-          />
-          <aside className="flex h-full w-full max-w-md flex-col bg-white shadow-bb-lg">
-            <div className="flex items-start justify-between gap-3 border-b border-bb-border px-5 py-4">
-              <div>
-                <p className="text-xs font-semibold text-bb-muted">{selected.code}</p>
-                <h2 className="mt-1 text-lg font-bold text-bb-ink">Task details</h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                className="rounded-lg p-1.5 text-bb-muted hover:bg-bb-sky"
-              >
-                <X className="h-5 w-5" aria-hidden />
-              </button>
-            </div>
-            <div className="flex min-h-0 flex-1 flex-col">
-              <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
-                <form
-                  id="task-detail-form"
-                  onSubmit={onSaveDetail}
-                  className="flex flex-col gap-4"
-                >
-                  <label className="block text-sm font-semibold text-bb-ink">
-                    Title
-                    <Input
-                      name="title"
-                      defaultValue={selected.title}
-                      required
-                      minLength={3}
-                      className="mt-1.5"
-                    />
-                  </label>
-                  <label className="block text-sm font-semibold text-bb-ink">
-                    Description
-                    <textarea
-                      name="description"
-                      defaultValue={selected.description ?? ""}
-                      rows={5}
-                      className="mt-1.5 w-full rounded-[10px] border border-bb-border bg-white px-3 py-2 text-sm text-bb-ink outline-none focus:border-bb-blue"
-                    />
-                  </label>
-                  <label className="block text-sm font-semibold text-bb-ink">
-                    Priority
-                    <select
-                      name="priority"
-                      defaultValue={selected.priority}
-                      className="mt-1.5 h-10 w-full rounded-[10px] border border-bb-border bg-white px-3 text-sm"
-                    >
-                      {(
-                        ["LOW", "MEDIUM", "HIGH", "URGENT"] as TaskPriority[]
-                      ).map((p) => (
-                        <option key={p} value={p}>
-                          {p}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block text-sm font-semibold text-bb-ink">
-                    Due date
-                    <Input
-                      name="dueDate"
-                      type="date"
-                      className="mt-1.5"
-                      defaultValue={
-                        selected.dueDate
-                          ? new Date(selected.dueDate)
-                              .toISOString()
-                              .slice(0, 10)
-                          : ""
-                      }
-                    />
-                  </label>
-                </form>
-
-                <TaskChecklistPanel
-                  taskId={selected.id}
-                  onProgressChange={(progress) => {
-                    const checklistProgress = progress
-                      ? {
-                          ...progress,
-                          progress:
-                            progress.total === 0
-                              ? 0
-                              : Math.round(
-                                  (progress.completed / progress.total) * 100,
-                                ),
-                        }
-                      : null;
-                    setSelected((prev) =>
-                      prev ? { ...prev, checklistProgress } : prev,
-                    );
-                    setBoard((prev) => {
-                      if (!prev) return prev;
-                      return {
-                        ...prev,
-                        columns: prev.columns.map((col) => ({
-                          ...col,
-                          tasks: (col.tasks ?? []).map((t) =>
-                            t.id === selected.id
-                              ? { ...t, checklistProgress }
-                              : t,
-                          ),
-                        })),
-                      };
-                    });
-                  }}
-                />
-
-                <TaskAttachmentPanel
-                  taskId={selected.id}
-                  onCountChange={(count) => {
-                    setSelected((prev) =>
-                      prev ? { ...prev, attachmentsCount: count } : prev,
-                    );
-                    setBoard((prev) => {
-                      if (!prev) return prev;
-                      return {
-                        ...prev,
-                        columns: prev.columns.map((col) => ({
-                          ...col,
-                          tasks: (col.tasks ?? []).map((t) =>
-                            t.id === selected.id
-                              ? { ...t, attachmentsCount: count }
-                              : t,
-                          ),
-                        })),
-                      };
-                    });
-                  }}
-                />
-
-                <TaskCommentPanel
-                  taskId={selected.id}
-                  workspaceId={board.project?.workspaceId ?? null}
-                  onCountChange={(count) => {
-                    setSelected((prev) =>
-                      prev ? { ...prev, commentsCount: count } : prev,
-                    );
-                    setBoard((prev) => {
-                      if (!prev) return prev;
-                      return {
-                        ...prev,
-                        columns: prev.columns.map((col) => ({
-                          ...col,
-                          tasks: (col.tasks ?? []).map((t) =>
-                            t.id === selected.id
-                              ? { ...t, commentsCount: count }
-                              : t,
-                          ),
-                        })),
-                      };
-                    });
-                  }}
-                />
-              </div>
-              <div className="flex gap-2 border-t border-bb-border px-5 py-4">
-                <Button
-                  type="submit"
-                  form="task-detail-form"
-                  fullWidth
-                  disabled={savingDetail}
-                >
-                  {savingDetail ? "Saving..." : "Save changes"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => void onDeleteTask()}
-                >
-                  <Trash2 className="h-4 w-4" aria-hidden />
-                </Button>
-              </div>
-            </div>
-          </aside>
-        </div>
+      {selected && board ? (
+        <TaskDetailModal
+          task={selected}
+          workspaceId={board.project?.workspaceId ?? null}
+          projectId={board.project?.id ?? null}
+          onClose={() => setSelected(null)}
+          onChange={applyTaskUpdate}
+          onDeleted={() => void onDeleteTask()}
+          onChecklistProgress={(progress) => {
+            const checklistProgress = progress
+              ? {
+                  ...progress,
+                  progress:
+                    progress.total === 0
+                      ? 0
+                      : Math.round(
+                          (progress.completed / progress.total) * 100,
+                        ),
+                }
+              : null;
+            setSelected((prev) =>
+              prev ? { ...prev, checklistProgress } : prev,
+            );
+            setBoard((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                columns: prev.columns.map((col) => ({
+                  ...col,
+                  tasks: (col.tasks ?? []).map((t) =>
+                    t.id === selected.id
+                      ? { ...t, checklistProgress }
+                      : t,
+                  ),
+                })),
+              };
+            });
+          }}
+          onAttachmentsCount={(count) => {
+            setSelected((prev) =>
+              prev ? { ...prev, attachmentsCount: count } : prev,
+            );
+            setBoard((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                columns: prev.columns.map((col) => ({
+                  ...col,
+                  tasks: (col.tasks ?? []).map((t) =>
+                    t.id === selected.id
+                      ? { ...t, attachmentsCount: count }
+                      : t,
+                  ),
+                })),
+              };
+            });
+          }}
+          onCommentsCount={(count) => {
+            setSelected((prev) =>
+              prev ? { ...prev, commentsCount: count } : prev,
+            );
+            setBoard((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                columns: prev.columns.map((col) => ({
+                  ...col,
+                  tasks: (col.tasks ?? []).map((t) =>
+                    t.id === selected.id
+                      ? { ...t, commentsCount: count }
+                      : t,
+                  ),
+                })),
+              };
+            });
+          }}
+        />
       ) : null}
     </div>
     </AppShell>
