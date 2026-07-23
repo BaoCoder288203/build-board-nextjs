@@ -6,6 +6,7 @@ import {
   LogOut,
   Plus,
   Send,
+  Settings,
   UserMinus,
   UserPlus,
 } from "lucide-react";
@@ -84,6 +85,10 @@ function WorkspaceDetailContent() {
   const canCreateProject =
     workspace?.myMembership?.permissions.includes("project:create")
     || workspace?.myMembership?.isOwner;
+  const canSettings =
+    workspace?.myMembership?.isOwner
+    || workspace?.myMembership?.permissions.includes("workspace:update")
+    || workspace?.myMembership?.permissions.includes("settings:manage");
 
   const applyPage = useCallback(
     (page: {
@@ -255,6 +260,20 @@ function WorkspaceDetailContent() {
           >
             <LogOut className="h-4 w-4" strokeWidth={2} aria-hidden />
           </Button>
+        ) : null}
+        {canSettings ? (
+          <Link
+            href={`/workspaces/${workspaceId}/settings`}
+            className={buttonClassName({
+              variant: "secondary",
+              size: "sm",
+              className: "px-2.5",
+            })}
+            aria-label="Workspace settings"
+            title="Workspace settings"
+          >
+            <Settings className="h-4 w-4" strokeWidth={2} aria-hidden />
+          </Link>
         ) : null}
       </div>
 

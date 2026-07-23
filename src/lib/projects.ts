@@ -72,6 +72,30 @@ export async function fetchProject(projectId: string) {
   return data.data as ProjectSummary;
 }
 
+export async function updateProject(
+  projectId: string,
+  input: {
+    name?: string;
+    description?: string | null;
+    visibility?: "PRIVATE" | "WORKSPACE";
+    color?: string | null;
+    icon?: string | null;
+  },
+) {
+  const { data } = await api.patch(`/projects/${projectId}`, input);
+  return data.data as ProjectSummary;
+}
+
+export async function archiveProject(projectId: string) {
+  const { data } = await api.post(`/projects/${projectId}/archive`);
+  return data.data as { message?: string };
+}
+
+export async function deleteProject(projectId: string) {
+  const { data } = await api.delete(`/projects/${projectId}`);
+  return data;
+}
+
 export async function fetchBoards(projectId: string) {
   const { data } = await api.get("/boards", { params: { projectId } });
   return data.data as { items: BoardSummary[]; total: number };

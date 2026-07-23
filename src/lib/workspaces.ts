@@ -124,6 +124,48 @@ export async function leaveWorkspace(workspaceId: string) {
   return data;
 }
 
+export async function updateWorkspace(
+  workspaceId: string,
+  input: {
+    name?: string;
+    description?: string | null;
+    timezone?: string | null;
+  },
+) {
+  const { data } = await api.patch(`/workspaces/${workspaceId}`, input);
+  return data.data as WorkspaceDetail;
+}
+
+export async function deleteWorkspace(workspaceId: string) {
+  const { data } = await api.delete(`/workspaces/${workspaceId}`);
+  return data;
+}
+
+export type WorkspaceSettings = {
+  allowGuest: boolean;
+  allowPublicProject: boolean;
+  allowAi: boolean;
+  allowFileUpload: boolean;
+  defaultLanguage: string;
+  defaultTimezone: string;
+};
+
+export async function fetchWorkspaceSettings(workspaceId: string) {
+  const { data } = await api.get(`/workspaces/${workspaceId}/settings`);
+  return data.data as WorkspaceSettings;
+}
+
+export async function updateWorkspaceSettings(
+  workspaceId: string,
+  input: Partial<WorkspaceSettings>,
+) {
+  const { data } = await api.patch(
+    `/workspaces/${workspaceId}/settings`,
+    input,
+  );
+  return data.data as WorkspaceSettings;
+}
+
 export async function acceptInvitation(token: string) {
   const { data } = await api.post("/workspaces/invitations/accept", { token });
   return data.data as { workspaceId: string; message: string };

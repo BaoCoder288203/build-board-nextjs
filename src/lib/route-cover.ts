@@ -1,6 +1,13 @@
 /**
- * Opaque full-viewport veil during soft navigations so empty chrome / body
- * canvas never flash between route swaps.
+ * Route cover helpers.
+ *
+ * Default soft navigations (Level 2) do NOT use a full-screen opaque veil —
+ * the persistent (app) AppShell already prevents canvas flash.
+ *
+ * Level 3 context switches (workspace reveal, board switch) use their own
+ * dedicated covers (bb-ws-reveal-cover / bb-board-switch-cover), not this API.
+ *
+ * beginRouteCover remains available for rare explicit Level-3-style callers.
  */
 
 const COVER_ID = "bb-route-cover";
@@ -50,7 +57,7 @@ export function isRouteCoverPending() {
   return pending || Boolean(document.getElementById(COVER_ID));
 }
 
-/** Show solid cover immediately (call before router.push / on link click). */
+/** Show solid cover immediately (call before router.push). Prefer Level-3 covers instead. */
 export function beginRouteCover(background?: string) {
   if (typeof document === "undefined") return null;
   if (prefersReducedMotion()) return null;
@@ -83,7 +90,6 @@ export function beginRouteCover(background?: string) {
     clearTimeout(releaseTimer);
     releaseTimer = null;
   }
-  // Safety: never leave cover stuck.
   releaseTimer = setTimeout(() => endRouteCover(true), 2500);
 
   return el;
@@ -114,33 +120,26 @@ export async function endRouteCover(immediate = false) {
     await waitTwoFrames();
   }
 
-  // Another nav may have started while we waited.
   if (pending && !immediate) return;
 
   el.remove();
 }
 
 /**
- * Run a programmatic navigation under the route cover.
- * No-op cover when reduced-motion or a priority cover is active.
+ * Soft navigation without a full-screen veil (Level 2).
+ * Kept as a named helper so call sites stay readable; cover is intentional no-op.
  */
-export function navigateWithCover(navigate: () => void, background?: string) {
-  beginRouteCover(background);
+export function navigateWithCover(navigate: () => void, _background?: string) {
+  void _background;
   navigate();
 }
 
-/** True when an internal same-origin soft nav should use the cover. */
-export function shouldCoverInternalHref(href: string, currentPath: string) {
-  try {
-    const url = new URL(href, window.location.origin);
-    if (url.origin !== window.location.origin) return false;
-    if (url.pathname.startsWith("/login") || url.pathname.startsWith("/register")) {
-      return false;
-    }
-    const next = `${url.pathname}${url.search}`;
-    const cur = currentPath;
-    return next !== cur;
-  } catch {
-    return false;
-  }
+/**
+ * Auto link covers are disabled — Level 2 nav uses persistent shell only.
+ * Level 3 flows opt into their own reveal/board covers.
+ */
+export function shouldCoverInternalHref(_href: string, _currentPath: string) {
+  void _href;
+  void _currentPath;
+  return false;
 }

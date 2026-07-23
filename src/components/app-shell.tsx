@@ -15,11 +15,7 @@ import {
 import { Logo } from "@/components/brand/logo";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { UserAvatarMenu } from "@/components/user-avatar-menu";
-import {
-  beginRouteCover,
-  endRouteCover,
-  shouldCoverInternalHref,
-} from "@/lib/route-cover";
+import { endRouteCover } from "@/lib/route-cover";
 import {
   workspaceCanvasStyle,
   type ThemeColors,
@@ -68,39 +64,9 @@ export function AppShellProvider({ children }: { children: ReactNode }) {
     };
   }, [canvasStyle]);
 
-  // Opaque veil on internal link clicks (before Next swaps page content).
-  useEffect(() => {
-    const onClick = (event: MouseEvent) => {
-      if (event.defaultPrevented) return;
-      if (event.button !== 0) return;
-      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
-        return;
-      }
-
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const anchor = target.closest("a[href]");
-      if (!(anchor instanceof HTMLAnchorElement)) return;
-      if (anchor.target && anchor.target !== "_self") return;
-      if (anchor.hasAttribute("download")) return;
-
-      const href = anchor.getAttribute("href");
-      if (!href || href.startsWith("#") || href.startsWith("mailto:")) return;
-      if (anchor.dataset.noRouteCover === "true") return;
-
-      const current = `${window.location.pathname}${window.location.search}`;
-      if (!shouldCoverInternalHref(href, current)) return;
-
-      beginRouteCover();
-    };
-
-    document.addEventListener("click", onClick, true);
-    return () => document.removeEventListener("click", onClick, true);
-  }, []);
-
-  // Drop cover once the new route has painted.
+  // Clear any leftover generic cover after paint (covers are no longer auto-applied).
   useLayoutEffect(() => {
-    void endRouteCover();
+    void endRouteCover(true);
   }, [pathname]);
 
   useEffect(() => {
