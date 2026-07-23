@@ -26,6 +26,7 @@ type AuthState = {
   ) => Promise<{ message: string; debugToken?: string }>;
   logout: () => Promise<void>;
   fetchMe: () => Promise<void>;
+  setUser: (user: AuthUser | null) => void;
 };
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -87,4 +88,6 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ user: null, initialized: true });
     }
   },
+
+  setUser: (user) => set({ user }),
 }));

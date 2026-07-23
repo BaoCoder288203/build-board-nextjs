@@ -2,6 +2,7 @@
 
 import { MessageSquare, Pencil, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { renderCommentContent } from "@/components/board/mention-hover-chip";
 import { Button } from "@/components/ui/button";
 import {
   createComment,
@@ -281,16 +282,12 @@ export function TaskCommentPanel({
               </div>
             ) : (
               <p className="mt-1 whitespace-pre-wrap text-sm text-bb-ink">
-                {comment.content}
+                {renderCommentContent(comment.content, [
+                  ...comment.mentions,
+                  ...members.map((m) => ({ user: m.user })),
+                ])}
               </p>
             )}
-
-            {comment.mentions.length > 0 ? (
-              <p className="mt-1 text-[11px] text-bb-muted">
-                Mentioned:{" "}
-                {comment.mentions.map((m) => m.user.fullName).join(", ")}
-              </p>
-            ) : null}
 
             {!opts?.nested && !isEditing ? (
               <div className="mt-2 flex flex-wrap items-center gap-2">

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft, Plus, Settings } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -151,6 +151,22 @@ function ProjectDetailContent() {
             className={buttonClassName({ variant: "primary", size: "sm" })}
           >
             Open main board
+          </Link>
+        ) : null}
+        {project.canManage ||
+        project.myRole === "OWNER" ||
+        project.myRole === "PROJECT_MANAGER" ? (
+          <Link
+            href={`/projects/${projectId}/settings`}
+            className={buttonClassName({
+              variant: "secondary",
+              size: "sm",
+              className: "px-2.5",
+            })}
+            aria-label="Project settings"
+            title="Project settings"
+          >
+            <Settings className="h-4 w-4" strokeWidth={2} aria-hidden />
           </Link>
         ) : null}
       </div>

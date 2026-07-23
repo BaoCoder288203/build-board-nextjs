@@ -1,6 +1,7 @@
 "use client";
 
-import { LogOut } from "lucide-react";
+import { Bell, KeyRound, LogOut, User } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { useAuthStore } from "@/stores/auth-store";
@@ -58,13 +59,24 @@ export function UserAvatarMenu({ variant = "default" }: Props) {
           isDark ? "hover:bg-white/15" : "hover:bg-bb-sky"
         }`}
       >
-        <span
-          className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white ${
-            isDark ? "bg-white/25 ring-2 ring-white/40" : "bg-bb-blue"
-          }`}
-        >
-          {initial}
-        </span>
+        {user?.avatar ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={user.avatar}
+            alt=""
+            className={`h-9 w-9 rounded-full object-cover ${
+              isDark ? "ring-2 ring-white/40" : ""
+            }`}
+          />
+        ) : (
+          <span
+            className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white ${
+              isDark ? "bg-white/25 ring-2 ring-white/40" : "bg-bb-blue"
+            }`}
+          >
+            {initial}
+          </span>
+        )}
         <span className="hidden min-w-0 text-left sm:block">
           <span
             className={`block max-w-[10rem] truncate text-sm font-semibold ${
@@ -96,11 +108,38 @@ export function UserAvatarMenu({ variant = "default" }: Props) {
             </p>
             <p className="truncate text-xs text-bb-muted">{user?.email}</p>
           </div>
+          <Link
+            href="/profile"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-semibold text-bb-ink transition hover:bg-bb-sky"
+          >
+            <User className="h-4 w-4" strokeWidth={2} aria-hidden />
+            Profile
+          </Link>
+          <Link
+            href="/profile?tab=security"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-semibold text-bb-ink transition hover:bg-bb-sky"
+          >
+            <KeyRound className="h-4 w-4" strokeWidth={2} aria-hidden />
+            Security
+          </Link>
+          <Link
+            href="/profile?tab=notifications"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-semibold text-bb-ink transition hover:bg-bb-sky"
+          >
+            <Bell className="h-4 w-4" strokeWidth={2} aria-hidden />
+            Notifications
+          </Link>
           <button
             type="button"
             role="menuitem"
             onClick={() => void onLogout()}
-            className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-semibold text-bb-danger transition hover:bg-bb-danger-bg"
+            className="flex w-full items-center gap-2 border-t border-bb-border px-3 py-2.5 text-left text-sm font-semibold text-bb-danger transition hover:bg-bb-danger-bg"
           >
             <LogOut className="h-4 w-4" strokeWidth={2} aria-hidden />
             Sign out
