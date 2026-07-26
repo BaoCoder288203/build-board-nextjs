@@ -3,6 +3,7 @@
 import {
   ArrowLeft,
   ChevronDown,
+  History,
   LogOut,
   Plus,
   Send,
@@ -249,6 +250,16 @@ function WorkspaceDetailContent() {
         <span className="inline-flex h-9 items-center rounded-lg bg-bb-sky px-3 text-sm font-semibold text-bb-blue">
           {workspace.myMembership?.roleName ?? "Member"}
         </span>
+        <Link
+          href={`/workspaces/${workspaceId}/activity`}
+          className={buttonClassName({
+            variant: "secondary",
+            size: "sm",
+          })}
+        >
+          <History className="h-4 w-4" strokeWidth={2} aria-hidden />
+          Activity
+        </Link>
         {!workspace.myMembership?.isOwner ? (
           <Button
             variant="danger"

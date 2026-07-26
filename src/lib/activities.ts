@@ -34,6 +34,15 @@ export type ActivityListResult = {
   totalPages: number;
 };
 
+export type ActivitySearchFilters = {
+  keyword?: string;
+  entityType?: string;
+  action?: string;
+  actorId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+};
+
 export async function fetchActivities(params: {
   workspaceId: string;
   projectId?: string;
@@ -53,6 +62,17 @@ export async function fetchActivityTimeline(params: {
   limit?: number;
 }) {
   const { data } = await api.get("/activities/timeline", { params });
+  return data.data as ActivityListResult;
+}
+
+export async function searchActivities(
+  params: {
+    workspaceId: string;
+    page?: number;
+    limit?: number;
+  } & ActivitySearchFilters,
+) {
+  const { data } = await api.get("/activities/search", { params });
   return data.data as ActivityListResult;
 }
 
@@ -129,5 +149,14 @@ export function formatActivityTime(iso: string): string {
     month: "short",
     day: "numeric",
     year: "numeric",
+  });
+}
+
+export function formatActivityDateTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
   });
 }
