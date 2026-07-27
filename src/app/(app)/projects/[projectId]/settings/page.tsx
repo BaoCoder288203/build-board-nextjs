@@ -9,6 +9,7 @@ import { Button, buttonClassName } from "@/components/ui/button";
 import { Field } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { navigateWithCover } from "@/lib/route-cover";
+import { confirm } from "@/lib/confirm";
 import { toastFromError, toastSuccess } from "@/lib/toast";
 import {
   archiveProject,
@@ -81,7 +82,13 @@ export default function ProjectSettingsPage() {
 
   async function onArchive() {
     if (!canManage) return;
-    if (!window.confirm(`Archive project “${project?.name}”?`)) return;
+    const ok = await confirm({
+      title: "Archive project?",
+      description: `Archive project “${project?.name}”? You can still manage it later from settings if needed.`,
+      confirmLabel: "Archive",
+      tone: "default",
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       await archiveProject(projectId);
@@ -98,13 +105,13 @@ export default function ProjectSettingsPage() {
 
   async function onDelete() {
     if (!canManage) return;
-    if (
-      !window.confirm(
-        `Delete project “${project?.name}”? This cannot be undone.`,
-      )
-    ) {
-      return;
-    }
+    const ok = await confirm({
+      title: "Delete project?",
+      description: `Delete project “${project?.name}”? This cannot be undone.`,
+      confirmLabel: "Delete project",
+      tone: "danger",
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       const workspaceId = project?.workspaceId;

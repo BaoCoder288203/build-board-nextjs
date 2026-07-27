@@ -1,18 +1,21 @@
 "use client";
 
-import { MessageSquare, Pencil, Trash2 } from "lucide-react";
+import { MessageSquare, Pencil, SmilePlus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { renderCommentContent } from "@/components/board/mention-hover-chip";
 import { Button } from "@/components/ui/button";
 import {
+  COMMENT_REACTION_EMOJIS,
   createComment,
   deleteComment,
   fetchComments,
   fetchReplies,
   replyToComment,
+  toggleCommentReaction,
   updateComment,
   type TaskComment,
 } from "@/lib/comments";
+import { confirm } from "@/lib/confirm";
 import { toastFromError, toastSuccess } from "@/lib/toast";
 import { fetchMembers, type WorkspaceMember } from "@/lib/workspaces";
 import { useAuthStore } from "@/stores/auth-store";
@@ -59,6 +62,9 @@ export function TaskCommentPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [mentionOpen, setMentionOpen] = useState(false);
+  const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(
+    null,
+  );
   const onCountChangeRef = useRef(onCountChange);
   onCountChangeRef.current = onCountChange;
 
@@ -94,6 +100,23 @@ export function TaskCommentPanel({
       cancelled = true;
     };
   }, [workspaceId]);
+
+  useEffect(() => {
+    if (!reactionPickerFor) return;
+    function onPointerDown(event: MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest("[data-reaction-picker]")) return;
+      setReactionPickerFor(null);
+    }
+    const timer = window.setTimeout(() => {
+      document.addEventListener("mousedown", onPointerDown);
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [reactionPickerFor]);
 
   function extractMentions(text: string) {
     if (!members.length) return [] as string[];
@@ -156,7 +179,13 @@ export function TaskCommentPanel({
   }
 
   async function onDelete(commentId: string) {
-    if (!window.confirm("Delete this comment?")) return;
+    const ok = await confirm({
+      title: "Delete comment?",
+      description: "This comment will be permanently removed.",
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
+    if (!ok) return;
     setBusy(commentId);
     try {
       await deleteComment(commentId);
@@ -208,6 +237,34 @@ export function TaskCommentPanel({
       await load();
       const { items } = await fetchReplies(parentId);
       setReplies((prev) => ({ ...prev, [parentId]: items }));
+    } catch (error) {
+      toastFromError(error);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function applyCommentUpdate(updated: TaskComment) {
+    setComments((prev) =>
+      prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)),
+    );
+    setReplies((prev) => {
+      const next: Record<string, TaskComment[]> = {};
+      for (const [parentId, items] of Object.entries(prev)) {
+        next[parentId] = items.map((c) =>
+          c.id === updated.id ? { ...c, ...updated } : c,
+        );
+      }
+      return next;
+    });
+  }
+
+  async function onToggleReaction(commentId: string, emoji: string) {
+    setBusy(`react-${commentId}-${emoji}`);
+    try {
+      const updated = await toggleCommentReaction(commentId, emoji);
+      applyCommentUpdate(updated);
+      setReactionPickerFor(null);
     } catch (error) {
       toastFromError(error);
     } finally {
@@ -288,6 +345,69 @@ export function TaskCommentPanel({
                 ])}
               </p>
             )}
+
+            {!isEditing ? (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {(comment.reactions ?? []).map((reaction) => (
+                  <button
+                    key={`${comment.id}-${reaction.emoji}`}
+                    type="button"
+                    disabled={busy === `react-${comment.id}-${reaction.emoji}`}
+                    onClick={() =>
+                      void onToggleReaction(comment.id, reaction.emoji)
+                    }
+                    className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-xs transition ${
+                      reaction.reactedByMe
+                        ? "border-bb-blue bg-bb-sky text-bb-ink"
+                        : "border-bb-border bg-white text-bb-muted hover:border-bb-blue/40 hover:bg-bb-sky/50"
+                    }`}
+                    title={
+                      reaction.reactedByMe
+                        ? "Remove reaction"
+                        : "Add reaction"
+                    }
+                  >
+                    <span aria-hidden>{reaction.emoji}</span>
+                    <span className="font-semibold">{reaction.count}</span>
+                  </button>
+                ))}
+                <div className="relative" data-reaction-picker>
+                  <button
+                    type="button"
+                    aria-label="Add reaction"
+                    title="Add reaction"
+                    onClick={() =>
+                      setReactionPickerFor((id) =>
+                        id === comment.id ? null : comment.id,
+                      )
+                    }
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-bb-border text-bb-muted hover:border-bb-blue hover:text-bb-blue"
+                  >
+                    <SmilePlus className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                  {reactionPickerFor === comment.id ? (
+                    <div
+                      data-reaction-picker
+                      className="absolute bottom-full left-0 z-20 mb-1 flex gap-1 rounded-lg border border-bb-border bg-white p-1 shadow-bb"
+                    >
+                      {COMMENT_REACTION_EMOJIS.map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-base hover:bg-bb-sky"
+                          onClick={() =>
+                            void onToggleReaction(comment.id, emoji)
+                          }
+                          aria-label={`React with ${emoji}`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
 
             {!opts?.nested && !isEditing ? (
               <div className="mt-2 flex flex-wrap items-center gap-2">

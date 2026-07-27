@@ -14,6 +14,7 @@ import {
   updateChecklistItem,
   type Checklist,
 } from "@/lib/checklists";
+import { confirm } from "@/lib/confirm";
 import { toastFromError, toastSuccess } from "@/lib/toast";
 
 type Props = {
@@ -100,7 +101,13 @@ export function TaskChecklistPanel({
   }
 
   async function onDeleteList(checklistId: string) {
-    if (!window.confirm("Delete this checklist and all its items?")) return;
+    const ok = await confirm({
+      title: "Delete checklist?",
+      description: "This checklist and all its items will be permanently removed.",
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
+    if (!ok) return;
     setBusy(checklistId);
     try {
       await deleteChecklist(checklistId);

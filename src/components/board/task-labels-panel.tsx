@@ -12,6 +12,7 @@ import {
   type TaskCard,
   type TaskLabel,
 } from "@/lib/tasks";
+import { confirm } from "@/lib/confirm";
 import { toastFromError, toastSuccess } from "@/lib/toast";
 
 const LABEL_COLORS = [
@@ -100,13 +101,13 @@ export function TaskLabelsPanel({
   }
 
   async function onDeleteLabel(label: TaskLabel) {
-    if (
-      !window.confirm(
-        `Delete label “${label.name}”? It will be removed from all tasks.`,
-      )
-    ) {
-      return;
-    }
+    const ok = await confirm({
+      title: "Delete label?",
+      description: `Delete label “${label.name}”? It will be removed from all tasks.`,
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
+    if (!ok) return;
     setBusyId(label.id);
     try {
       await deleteProjectLabel(label.id);

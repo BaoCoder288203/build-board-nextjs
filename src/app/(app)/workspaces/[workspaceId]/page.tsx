@@ -4,8 +4,10 @@ import {
   ArrowLeft,
   ChevronDown,
   History,
+  LayoutDashboard,
   LogOut,
   Plus,
+  Search,
   Send,
   Settings,
   UserMinus,
@@ -21,6 +23,7 @@ import { Button, buttonClassName } from "@/components/ui/button";
 import { Field } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { navigateWithCover } from "@/lib/route-cover";
+import { confirm } from "@/lib/confirm";
 import { toastFromError, toastSuccess } from "@/lib/toast";
 import {
   finishWorkspaceEnterReveal,
@@ -189,6 +192,16 @@ function WorkspaceDetailContent() {
   }
 
   async function onRemove(memberId: string) {
+    const member = members.find((m) => m.id === memberId);
+    const ok = await confirm({
+      title: "Remove member?",
+      description: member
+        ? `Remove ${member.user.fullName} from this workspace?`
+        : "Remove this member from the workspace?",
+      confirmLabel: "Remove",
+      tone: "danger",
+    });
+    if (!ok) return;
     try {
       await removeMember(workspaceId, memberId);
       toastSuccess("Member removed");
@@ -199,6 +212,13 @@ function WorkspaceDetailContent() {
   }
 
   async function onLeave() {
+    const ok = await confirm({
+      title: "Leave workspace?",
+      description: "You will lose access until someone invites you again.",
+      confirmLabel: "Leave",
+      tone: "danger",
+    });
+    if (!ok) return;
     try {
       await leaveWorkspace(workspaceId);
       toastSuccess("Left workspace");
@@ -250,6 +270,26 @@ function WorkspaceDetailContent() {
         <span className="inline-flex h-9 items-center rounded-lg bg-bb-sky px-3 text-sm font-semibold text-bb-blue">
           {workspace.myMembership?.roleName ?? "Member"}
         </span>
+        <Link
+          href={`/workspaces/${workspaceId}/dashboard`}
+          className={buttonClassName({
+            variant: "secondary",
+            size: "sm",
+          })}
+        >
+          <LayoutDashboard className="h-4 w-4" strokeWidth={2} aria-hidden />
+          Dashboard
+        </Link>
+        <Link
+          href={`/workspaces/${workspaceId}/search`}
+          className={buttonClassName({
+            variant: "secondary",
+            size: "sm",
+          })}
+        >
+          <Search className="h-4 w-4" strokeWidth={2} aria-hidden />
+          Search
+        </Link>
         <Link
           href={`/workspaces/${workspaceId}/activity`}
           className={buttonClassName({

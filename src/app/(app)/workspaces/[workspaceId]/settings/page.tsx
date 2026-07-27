@@ -9,6 +9,7 @@ import { Button, buttonClassName } from "@/components/ui/button";
 import { Field } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { navigateWithCover } from "@/lib/route-cover";
+import { confirm } from "@/lib/confirm";
 import { toastFromError, toastSuccess } from "@/lib/toast";
 import {
   deleteWorkspace,
@@ -101,13 +102,13 @@ export default function WorkspaceSettingsPage() {
 
   async function onDelete() {
     if (!canDelete) return;
-    if (
-      !window.confirm(
-        `Delete workspace “${workspace?.name}”? This cannot be undone.`,
-      )
-    ) {
-      return;
-    }
+    const ok = await confirm({
+      title: "Delete workspace?",
+      description: `Delete workspace “${workspace?.name}”? This cannot be undone.`,
+      confirmLabel: "Delete workspace",
+      tone: "danger",
+    });
+    if (!ok) return;
     setDeleting(true);
     try {
       await deleteWorkspace(workspaceId);

@@ -31,6 +31,9 @@ export type TaskCard = {
   priority: TaskPriority;
   status: TaskStatus;
   dueDate?: string | null;
+  isPinned?: boolean;
+  isWatching?: boolean;
+  watchersCount?: number;
   position: number;
   createdAt?: string;
   assignees: TaskAssignee[];
@@ -139,6 +142,31 @@ export async function assignTask(taskId: string, userId: string) {
 export async function unassignTask(taskId: string, userId: string) {
   const { data } = await api.delete(`/tasks/${taskId}/assignees`, {
     data: { userId },
+  });
+  return data.data as TaskCard;
+}
+
+export async function watchTask(taskId: string) {
+  const { data } = await api.post(`/tasks/${taskId}/watchers`);
+  return data.data as TaskCard;
+}
+
+export async function unwatchTask(taskId: string) {
+  const { data } = await api.delete(`/tasks/${taskId}/watchers`);
+  return data.data as TaskCard;
+}
+
+export async function pinTask(taskId: string, pinned: boolean) {
+  const { data } = await api.patch(`/tasks/${taskId}/pin`, { pinned });
+  return data.data as TaskCard;
+}
+
+export async function duplicateTask(
+  taskId: string,
+  destinationColumnId?: string,
+) {
+  const { data } = await api.post(`/tasks/${taskId}/duplicate`, {
+    ...(destinationColumnId ? { destinationColumnId } : {}),
   });
   return data.data as TaskCard;
 }
