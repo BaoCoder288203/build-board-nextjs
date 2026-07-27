@@ -2,6 +2,17 @@
 
 import { api } from "@/lib/api";
 
+export const COMMENT_REACTION_EMOJIS = [
+  "👍",
+  "❤️",
+  "😄",
+  "🎉",
+  "👀",
+  "🔥",
+] as const;
+
+export type CommentReactionEmoji = (typeof COMMENT_REACTION_EMOJIS)[number];
+
 export type CommentAuthor = {
   workspaceMemberId: string;
   role?: { id: string; name: string };
@@ -12,6 +23,12 @@ export type CommentAuthor = {
     username: string;
     avatar?: string | null;
   };
+};
+
+export type CommentReaction = {
+  emoji: string;
+  count: number;
+  reactedByMe: boolean;
 };
 
 export type TaskComment = {
@@ -29,6 +46,7 @@ export type TaskComment = {
     workspaceMemberId: string;
     user: CommentAuthor["user"];
   }>;
+  reactions?: CommentReaction[];
 };
 
 export async function fetchComments(taskId: string) {
@@ -73,4 +91,24 @@ export async function replyToComment(
 export async function fetchReplies(commentId: string) {
   const { data } = await api.get(`/comments/${commentId}/replies`);
   return data.data as { items: TaskComment[] };
+}
+
+export async function toggleCommentReaction(
+  commentId: string,
+  emoji: CommentReactionEmoji | string,
+) {
+  const { data } = await api.post(`/comments/${commentId}/reactions`, {
+    emoji,
+  });
+  return data.data as TaskComment;
+}
+
+export async function removeCommentReaction(
+  commentId: string,
+  emoji: CommentReactionEmoji | string,
+) {
+  const { data } = await api.delete(
+    `/comments/${commentId}/reactions/${encodeURIComponent(emoji)}`,
+  );
+  return data.data as TaskComment;
 }

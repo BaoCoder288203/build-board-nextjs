@@ -18,6 +18,7 @@ import {
   uploadAttachment,
   type TaskAttachment,
 } from "@/lib/attachments";
+import { confirm } from "@/lib/confirm";
 import { toastFromError, toastSuccess } from "@/lib/toast";
 
 type Props = {
@@ -89,7 +90,13 @@ export function TaskAttachmentPanel({
   }
 
   async function onDelete(id: string) {
-    if (!window.confirm("Remove this attachment?")) return;
+    const ok = await confirm({
+      title: "Remove attachment?",
+      description: "This file will be removed from the task.",
+      confirmLabel: "Remove",
+      tone: "danger",
+    });
+    if (!ok) return;
     setBusyId(id);
     try {
       await deleteAttachment(id);

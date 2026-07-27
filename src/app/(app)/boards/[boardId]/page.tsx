@@ -4,8 +4,10 @@ import {
   ArrowLeft,
   Calendar,
   CheckSquare,
+  Eye,
   MessageSquare,
   Paperclip,
+  Pin,
   Plus,
 } from "lucide-react";
 import Link from "next/link";
@@ -42,6 +44,7 @@ import {
   getBoardPageCache,
   prefetchBoardPage,
 } from "@/stores/entity-cache";
+import { confirm } from "@/lib/confirm";
 import {
   archiveColumn,
   copyColumn,
@@ -348,7 +351,13 @@ function BoardViewContent() {
 
   async function onDeleteTask() {
     if (!selected) return;
-    if (!window.confirm(`Delete task ${selected.code}?`)) return;
+    const ok = await confirm({
+      title: "Delete task?",
+      description: `Delete task ${selected.code}? This cannot be undone.`,
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
+    if (!ok) return;
     try {
       await deleteTask(selected.id);
       toastSuccess("Task deleted");
@@ -468,6 +477,24 @@ function BoardViewContent() {
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-bb-muted">
                 <Paperclip className="h-3 w-3" aria-hidden />
                 {task.attachmentsCount}
+              </span>
+            ) : null}
+            {task.isPinned ? (
+              <span
+                title="Pinned"
+                className="inline-flex text-amber-700"
+                aria-label="Pinned"
+              >
+                <Pin className="h-3.5 w-3.5" aria-hidden />
+              </span>
+            ) : null}
+            {task.isWatching ? (
+              <span
+                title="Watching"
+                className="inline-flex text-bb-blue"
+                aria-label="Watching"
+              >
+                <Eye className="h-3.5 w-3.5" aria-hidden />
               </span>
             ) : null}
           </div>
@@ -644,6 +671,13 @@ function BoardViewContent() {
                       await load();
                     }}
                     onArchive={async () => {
+                      const ok = await confirm({
+                        title: "Archive list?",
+                        description: `Archive “${column.name}”? Cards in this list will be archived with it.`,
+                        confirmLabel: "Archive",
+                        tone: "danger",
+                      });
+                      if (!ok) return;
                       await archiveColumn(column.id);
                       toastSuccess("List archived");
                       await load();
@@ -735,6 +769,9 @@ function BoardViewContent() {
           onClose={() => setSelected(null)}
           onChange={applyTaskUpdate}
           onDeleted={() => void onDeleteTask()}
+          onDuplicated={async () => {
+            await load();
+          }}
           onChecklistProgress={(progress) => {
             const checklistProgress = progress
               ? {

@@ -3,7 +3,12 @@
 import {
   Calendar,
   CheckSquare,
+  Copy,
+  Eye,
+  EyeOff,
   Paperclip,
+  Pin,
+  PinOff,
   Tag,
   Trash2,
   UserPlus,
@@ -27,7 +32,11 @@ import { Input } from "@/components/ui/input";
 import { createChecklist } from "@/lib/checklists";
 import { toastFromError, toastSuccess } from "@/lib/toast";
 import {
+  duplicateTask,
+  pinTask,
+  unwatchTask,
   updateTask,
+  watchTask,
   type TaskCard,
   type TaskPriority,
 } from "@/lib/tasks";
@@ -47,6 +56,7 @@ type Props = {
   onClose: () => void;
   onChange: (task: TaskCard) => void;
   onDeleted: () => void | Promise<void>;
+  onDuplicated?: () => void | Promise<void>;
   onChecklistProgress?: (progress: {
     completed: number;
     total: number;
@@ -148,6 +158,7 @@ export function TaskDetailModal({
   onClose,
   onChange,
   onDeleted,
+  onDuplicated,
   onChecklistProgress,
   onAttachmentsCount,
   onCommentsCount,
@@ -166,6 +177,7 @@ export function TaskDetailModal({
   const [addingChecklist, setAddingChecklist] = useState(false);
   const [checklistKey, setChecklistKey] = useState(0);
   const [attachmentKey, setAttachmentKey] = useState(0);
+  const [actionBusy, setActionBusy] = useState<"watch" | "pin" | "duplicate" | null>(null);
 
   useEffect(() => {
     setTitle(task.title);
@@ -239,6 +251,47 @@ export function TaskDetailModal({
     }
   }
 
+  async function onToggleWatch() {
+    setActionBusy("watch");
+    try {
+      const updated = task.isWatching
+        ? await unwatchTask(task.id)
+        : await watchTask(task.id);
+      onChange(updated);
+      toastSuccess(updated.isWatching ? "Watching this task" : "Stopped watching");
+    } catch (error) {
+      toastFromError(error);
+    } finally {
+      setActionBusy(null);
+    }
+  }
+
+  async function onTogglePin() {
+    setActionBusy("pin");
+    try {
+      const updated = await pinTask(task.id, !task.isPinned);
+      onChange(updated);
+      toastSuccess(updated.isPinned ? "Task pinned" : "Task unpinned");
+    } catch (error) {
+      toastFromError(error);
+    } finally {
+      setActionBusy(null);
+    }
+  }
+
+  async function onDuplicate() {
+    setActionBusy("duplicate");
+    try {
+      await duplicateTask(task.id);
+      toastSuccess("Task duplicated");
+      await onDuplicated?.();
+    } catch (error) {
+      toastFromError(error);
+    } finally {
+      setActionBusy(null);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center p-3 sm:p-6">
       <button
@@ -259,6 +312,54 @@ export function TaskDetailModal({
             <h2 id={titleId} className="mt-0.5 text-lg font-bold text-bb-ink">
               Task details
             </h2>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void onToggleWatch()}
+                disabled={actionBusy === "watch"}
+                aria-label={task.isWatching ? "Unwatch task" : "Watch task"}
+                title={task.isWatching ? "Unwatch" : "Watch"}
+                className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                  task.isWatching
+                    ? "border-bb-blue bg-bb-sky text-bb-blue"
+                    : "border-bb-border bg-white text-bb-ink hover:border-bb-blue/40 hover:bg-bb-sky"
+                }`}
+              >
+                {task.isWatching ? (
+                  <EyeOff className="h-3.5 w-3.5" aria-hidden />
+                ) : (
+                  <Eye className="h-3.5 w-3.5" aria-hidden />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => void onTogglePin()}
+                disabled={actionBusy === "pin"}
+                aria-label={task.isPinned ? "Unpin task" : "Pin task"}
+                title={task.isPinned ? "Unpin" : "Pin"}
+                className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                  task.isPinned
+                    ? "border-amber-400 bg-amber-50 text-amber-700"
+                    : "border-bb-border bg-white text-bb-ink hover:border-bb-blue/40 hover:bg-bb-sky"
+                }`}
+              >
+                {task.isPinned ? (
+                  <PinOff className="h-3.5 w-3.5" aria-hidden />
+                ) : (
+                  <Pin className="h-3.5 w-3.5" aria-hidden />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => void onDuplicate()}
+                disabled={actionBusy === "duplicate"}
+                aria-label="Duplicate task"
+                title="Duplicate"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-bb-border bg-white text-bb-ink transition hover:border-bb-blue/40 hover:bg-bb-sky disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Copy className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            </div>
           </div>
           <button
             type="button"

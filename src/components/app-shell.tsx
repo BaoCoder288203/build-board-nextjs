@@ -14,6 +14,7 @@ import {
 } from "react";
 import { Logo } from "@/components/brand/logo";
 import { NotificationBell } from "@/components/notifications/notification-bell";
+import { GlobalSearchButton } from "@/components/search/global-search";
 import { UserAvatarMenu } from "@/components/user-avatar-menu";
 import { endRouteCover } from "@/lib/route-cover";
 import {
@@ -103,6 +104,7 @@ export function AppShellProvider({ children }: { children: ReactNode }) {
                   </nav>
                 </div>
                 <div className="flex items-center gap-2 sm:gap-3">
+                  <GlobalSearchButton />
                   <NotificationBell />
                   <UserAvatarMenu />
                 </div>
@@ -125,7 +127,13 @@ export function AppShellProvider({ children }: { children: ReactNode }) {
             </main>
           </>
         ) : (
-          children
+          <>
+            {/* ⌘K still available on board chrome */}
+            <div className="sr-only">
+              <GlobalSearchButton />
+            </div>
+            {children}
+          </>
         )}
       </div>
     </AppShellContext.Provider>
