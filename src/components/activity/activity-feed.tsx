@@ -1,11 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import {
   fetchActivities,
   fetchActivityTimeline,
+  formatActivityDateTime,
   formatActivitySummary,
   formatActivityTime,
+  searchActivities,
+  type ActivitySearchFilters,
   type ActivityItem,
 } from "@/lib/activities";
 import { toastFromError } from "@/lib/toast";
@@ -17,6 +21,9 @@ export function ActivityFeed({
   boardId,
   mode = "list",
   limit = 20,
+  filters,
+  showLoadMore = false,
+  showAbsoluteTime = false,
   className = "",
 }: {
   workspaceId: string;
@@ -25,36 +32,88 @@ export function ActivityFeed({
   boardId?: string;
   mode?: "list" | "timeline";
   limit?: number;
+  filters?: ActivitySearchFilters;
+  showLoadMore?: boolean;
+  showAbsoluteTime?: boolean;
   className?: string;
 }) {
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const requestIdRef = useRef(0);
+  const hasFilters = filters !== undefined;
+  const keyword = filters?.keyword;
+  const entityType = filters?.entityType;
+  const action = filters?.action;
+  const actorId = filters?.actorId;
+  const dateFrom = filters?.dateFrom;
+  const dateTo = filters?.dateTo;
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (nextPage: number, append: boolean) => {
+    const requestId = ++requestIdRef.current;
+    if (append) setLoadingMore(true);
+    else setLoading(true);
     try {
-      const data =
-        mode === "timeline"
-          ? await fetchActivityTimeline({ workspaceId, limit })
+      const data = hasFilters
+        ? await searchActivities({
+            workspaceId,
+            keyword,
+            entityType,
+            action,
+            actorId,
+            dateFrom,
+            dateTo,
+            page: nextPage,
+            limit,
+          })
+        : mode === "timeline"
+          ? await fetchActivityTimeline({
+              workspaceId,
+              page: nextPage,
+              limit,
+            })
           : await fetchActivities({
               workspaceId,
               taskId,
               projectId,
               boardId,
+              page: nextPage,
               limit,
             });
-      setItems(data.items);
+      if (requestId !== requestIdRef.current) return;
+      setItems((current) => append ? [...current, ...data.items] : data.items);
+      setPage(data.page);
       setTotal(data.total);
     } catch (error) {
+      if (requestId !== requestIdRef.current) return;
       toastFromError(error);
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
-  }, [workspaceId, taskId, projectId, boardId, mode, limit]);
+  }, [
+    workspaceId,
+    taskId,
+    projectId,
+    boardId,
+    mode,
+    limit,
+    hasFilters,
+    keyword,
+    entityType,
+    action,
+    actorId,
+    dateFrom,
+    dateTo,
+  ]);
 
   useEffect(() => {
-    void load();
+    const timeoutId = window.setTimeout(() => void load(1, false), 0);
+    return () => window.clearTimeout(timeoutId);
   }, [load]);
 
   if (loading) {
@@ -82,7 +141,9 @@ export function ActivityFeed({
                 {formatActivitySummary(item)}
               </p>
               <p className="mt-0.5 text-xs text-bb-muted">
-                {formatActivityTime(item.createdAt)}
+                {showAbsoluteTime
+                  ? formatActivityDateTime(item.createdAt)
+                  : formatActivityTime(item.createdAt)}
                 <span className="mx-1.5 text-bb-border">·</span>
                 <span className="uppercase tracking-wide">
                   {item.entityType}
@@ -93,9 +154,26 @@ export function ActivityFeed({
         ))}
       </ul>
       {total > items.length ? (
-        <p className="mt-3 text-xs text-bb-muted">
-          Showing {items.length} of {total}
-        </p>
+        showLoadMore ? (
+          <div className="mt-5 flex flex-col items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={loadingMore}
+              onClick={() => void load(page + 1, true)}
+            >
+              {loadingMore ? "Loading..." : "Load more"}
+            </Button>
+            <p className="text-xs text-bb-muted">
+              Showing {items.length} of {total}
+            </p>
+          </div>
+        ) : (
+          <p className="mt-3 text-xs text-bb-muted">
+            Showing {items.length} of {total}
+          </p>
+        )
       ) : null}
     </div>
   );
