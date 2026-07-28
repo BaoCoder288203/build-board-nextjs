@@ -1,6 +1,7 @@
 "use client";
 
 import { Bell, CheckCheck } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchNotifications,
@@ -53,6 +54,7 @@ type Props = {
 };
 
 export function NotificationBell({ variant = "default" }: Props) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<AppNotification[]>([]);
   const [unread, setUnread] = useState(0);
@@ -137,6 +139,14 @@ export function NotificationBell({ variant = "default" }: Props) {
       } catch (error) {
         toastFromError(error);
       }
+    }
+    const boardIdFromMeta =
+      typeof n.metadata?.boardId === "string" ? n.metadata.boardId : null;
+    const boardId =
+      n.entityType === "BOARD" ? boardIdFromMeta ?? n.entityId : boardIdFromMeta;
+    if (boardId) {
+      setOpen(false);
+      router.push(`/boards/${boardId}`);
     }
   }
 
