@@ -20,6 +20,15 @@ import {
   type TaskComment,
 } from "@/lib/comments";
 import {
+  CLIENT_EVENT,
+  SERVER_EVENT,
+  boardRoom,
+  type CommentDeletedPayload,
+  type CommentRealtimePayload,
+  type TypingStatePayload,
+} from "@/lib/realtime/events";
+import { connectRealtime } from "@/lib/realtime/socket-client";
+import {
   extractMentionUserIdsFromComment,
   isCommentContentEmpty,
 } from "@/lib/comment-content";
@@ -27,9 +36,11 @@ import { confirm } from "@/lib/confirm";
 import { toastFromError, toastSuccess } from "@/lib/toast";
 import { fetchMembers, type WorkspaceMember } from "@/lib/workspaces";
 import { useAuthStore } from "@/stores/auth-store";
+import { useRealtimeSnapshotResync } from "@/hooks/use-realtime-snapshot-resync";
 
 type Props = {
   taskId: string;
+  boardId?: string;
   workspaceId?: string | null;
   onCountChange?: (count: number) => void;
   /** sidebar = hide section title (modal column already has one) */
@@ -55,6 +66,7 @@ function formatTime(iso: string) {
 
 export function TaskCommentPanel({
   taskId,
+  boardId,
   workspaceId,
   onCountChange,
   variant = "full",
@@ -72,7 +84,11 @@ export function TaskCommentPanel({
   const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(
     null,
   );
+  const [typingUsers, setTypingUsers] = useState<Array<{ id: string; fullName: string }>>([]);
   const draftRef = useRef<RichCommentEditorHandle>(null);
+  const typingRef = useRef(false);
+  const typingStopTimerRef = useRef<number | null>(null);
+  const lastTypingEmitAtRef = useRef(0);
   const onCountChangeRef = useRef(onCountChange);
   onCountChangeRef.current = onCountChange;
 
@@ -88,6 +104,16 @@ export function TaskCommentPanel({
       setLoading(false);
     }
   }, [taskId]);
+
+  useRealtimeSnapshotResync(load);
+
+  function notifyCount(nextComments: TaskComment[]) {
+    const count = nextComments.reduce(
+      (n, c) => n + 1 + (c.replyCount ?? 0),
+      0,
+    );
+    onCountChangeRef.current?.(count);
+  }
 
   useEffect(() => {
     setLoading(true);
@@ -125,6 +151,231 @@ export function TaskCommentPanel({
       document.removeEventListener("mousedown", onPointerDown);
     };
   }, [reactionPickerFor]);
+
+  useEffect(() => {
+    if (!boardId) return;
+    const socket = connectRealtime();
+    const room = boardRoom(boardId);
+
+    const onTyping = (payload: TypingStatePayload) => {
+      if (payload.room !== room) return;
+      if (payload.taskId !== taskId) return;
+      if (payload.user.id === user?.id) return;
+      setTypingUsers((prev) => {
+        const exists = prev.some((entry) => entry.id === payload.user.id);
+        if (payload.isTyping) {
+          return exists ? prev : [...prev, payload.user];
+        }
+        return prev.filter((entry) => entry.id !== payload.user.id);
+      });
+    };
+
+    const onCommentCreated = (payload: CommentRealtimePayload) => {
+      if (payload.boardId !== boardId) return;
+      if (payload.taskId !== taskId) return;
+      setTypingUsers((prev) =>
+        prev.filter((entry) => entry.id !== payload.actorId),
+      );
+      // Author already refreshed via REST; skip to avoid double-count.
+      if (payload.actorId === user?.id) return;
+
+      const comment = payload.comment as TaskComment;
+      const parentId = comment.parentCommentId ?? null;
+      if (parentId) {
+        setReplies((prev) => {
+          const items = prev[parentId];
+          if (!items) return prev;
+          if (items.some((c) => c.id === comment.id)) {
+            return {
+              ...prev,
+              [parentId]: items.map((c) =>
+                c.id === comment.id ? { ...c, ...comment } : c,
+              ),
+            };
+          }
+          return { ...prev, [parentId]: [...items, comment] };
+        });
+        setComments((prev) => {
+          const next = prev.map((c) =>
+            c.id === parentId
+              ? { ...c, replyCount: (c.replyCount ?? 0) + 1 }
+              : c,
+          );
+          notifyCount(next);
+          return next;
+        });
+        return;
+      }
+
+      setComments((prev) => {
+        if (prev.some((c) => c.id === comment.id)) {
+          const next = prev.map((c) =>
+            c.id === comment.id ? { ...c, ...comment } : c,
+          );
+          notifyCount(next);
+          return next;
+        }
+        const next = [...prev, comment];
+        notifyCount(next);
+        return next;
+      });
+    };
+
+    const onCommentUpdated = (payload: CommentRealtimePayload) => {
+      if (payload.boardId !== boardId) return;
+      if (payload.taskId !== taskId) return;
+      if (payload.actorId === user?.id) return;
+      applyCommentUpdate(payload.comment as TaskComment);
+    };
+
+    const onCommentDeleted = (payload: CommentDeletedPayload) => {
+      if (payload.boardId !== boardId) return;
+      if (payload.taskId !== taskId) return;
+      if (payload.actorId === user?.id) return;
+      const parentId = payload.parentCommentId ?? null;
+      if (parentId) {
+        setReplies((prev) => {
+          const items = prev[parentId];
+          if (!items) return prev;
+          return {
+            ...prev,
+            [parentId]: items.filter((c) => c.id !== payload.commentId),
+          };
+        });
+        setComments((prev) => {
+          const next = prev.map((c) =>
+            c.id === parentId
+              ? { ...c, replyCount: Math.max(0, (c.replyCount ?? 0) - 1) }
+              : c,
+          );
+          notifyCount(next);
+          return next;
+        });
+        return;
+      }
+      setComments((prev) => {
+        const next = prev.filter((c) => c.id !== payload.commentId);
+        notifyCount(next);
+        return next;
+      });
+      setReplies((prev) => {
+        const next = { ...prev };
+        delete next[payload.commentId];
+        return next;
+      });
+    };
+
+    const onCommentReaction = (payload: CommentRealtimePayload) => {
+      if (payload.boardId !== boardId) return;
+      if (payload.taskId !== taskId) return;
+      const incoming = payload.comment as TaskComment;
+      if (payload.actorId === user?.id) {
+        applyCommentUpdate(incoming);
+        return;
+      }
+      setComments((prev) =>
+        prev.map((c) => {
+          if (c.id !== incoming.id) return c;
+          return {
+            ...c,
+            ...incoming,
+            reactions: (incoming.reactions ?? []).map((r) => ({
+              ...r,
+              reactedByMe:
+                c.reactions?.find((x) => x.emoji === r.emoji)?.reactedByMe ??
+                false,
+            })),
+          };
+        }),
+      );
+      setReplies((prev) => {
+        const next: Record<string, TaskComment[]> = {};
+        for (const [pid, items] of Object.entries(prev)) {
+          next[pid] = items.map((c) => {
+            if (c.id !== incoming.id) return c;
+            return {
+              ...c,
+              ...incoming,
+              reactions: (incoming.reactions ?? []).map((r) => ({
+                ...r,
+                reactedByMe:
+                  c.reactions?.find((x) => x.emoji === r.emoji)?.reactedByMe ??
+                  false,
+              })),
+            };
+          });
+        }
+        return next;
+      });
+    };
+
+    socket.on(SERVER_EVENT.TYPING_STATE, onTyping);
+    socket.on(SERVER_EVENT.COMMENT_CREATED, onCommentCreated);
+    socket.on(SERVER_EVENT.COMMENT_UPDATED, onCommentUpdated);
+    socket.on(SERVER_EVENT.COMMENT_DELETED, onCommentDeleted);
+    socket.on(SERVER_EVENT.COMMENT_REACTION, onCommentReaction);
+    return () => {
+      socket.off(SERVER_EVENT.TYPING_STATE, onTyping);
+      socket.off(SERVER_EVENT.COMMENT_CREATED, onCommentCreated);
+      socket.off(SERVER_EVENT.COMMENT_UPDATED, onCommentUpdated);
+      socket.off(SERVER_EVENT.COMMENT_DELETED, onCommentDeleted);
+      socket.off(SERVER_EVENT.COMMENT_REACTION, onCommentReaction);
+      setTypingUsers([]);
+    };
+  }, [boardId, taskId, user?.id]);
+
+  function emitTyping(isTyping: boolean, force = false) {
+    if (!boardId) return;
+    const now = Date.now();
+    // Throttle "still typing" heartbeats; always allow stop typing.
+    if (isTyping && !force && now - lastTypingEmitAtRef.current < 2_000) {
+      return;
+    }
+    lastTypingEmitAtRef.current = now;
+    const socket = connectRealtime();
+    socket.emit(CLIENT_EVENT.TYPING_STATE, {
+      room: boardRoom(boardId),
+      taskId,
+      isTyping,
+    });
+  }
+
+  useEffect(() => {
+    const hasContent = !isCommentContentEmpty(draft);
+    if (hasContent) {
+      if (!typingRef.current) {
+        typingRef.current = true;
+        emitTyping(true, true);
+      } else {
+        emitTyping(true);
+      }
+    } else if (typingRef.current) {
+      typingRef.current = false;
+      emitTyping(false, true);
+    }
+    if (typingStopTimerRef.current) {
+      window.clearTimeout(typingStopTimerRef.current);
+      typingStopTimerRef.current = null;
+    }
+    if (hasContent) {
+      typingStopTimerRef.current = window.setTimeout(() => {
+        typingRef.current = false;
+        emitTyping(false, true);
+      }, 4000);
+    }
+  }, [draft, boardId, taskId]);
+
+  useEffect(() => {
+    return () => {
+      if (typingStopTimerRef.current) {
+        window.clearTimeout(typingStopTimerRef.current);
+      }
+      if (typingRef.current) {
+        typingRef.current = false;
+        emitTyping(false, true);
+      }
+    };
+  }, [boardId, taskId]);
 
   async function onCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -504,6 +755,11 @@ export function TaskCommentPanel({
       </ul>
 
       <form onSubmit={onCreate} className="space-y-2">
+        {typingUsers.length > 0 ? (
+          <p className="text-xs text-bb-muted">
+            {typingUsers.map((entry) => entry.fullName).join(", ")} typing...
+          </p>
+        ) : null}
         <RichCommentEditor
           ref={draftRef}
           value={draft}

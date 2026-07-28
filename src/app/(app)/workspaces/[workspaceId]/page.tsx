@@ -23,11 +23,14 @@ import {
   type ReactNode,
 } from "react";
 import { AppShell } from "@/components/app-shell";
+import { useRealtimeRoom } from "@/hooks/use-realtime-room";
+import { useRealtimeSnapshotResync } from "@/hooks/use-realtime-snapshot-resync";
 import { ProjectAvatar } from "@/components/visual/project-avatar";
 import { Alert } from "@/components/ui/alert";
 import { Button, buttonClassName } from "@/components/ui/button";
 import { Field } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { connectRealtime } from "@/lib/realtime/socket-client";
 import { navigateWithCover } from "@/lib/route-cover";
 import { confirm } from "@/lib/confirm";
 import { toastFromError, toastSuccess } from "@/lib/toast";
@@ -35,6 +38,11 @@ import {
   finishWorkspaceEnterReveal,
   peekWorkspaceRevealPending,
 } from "@/lib/workspace-reveal";
+import {
+  SERVER_EVENT,
+  workspaceRoom,
+  type WorkspaceChangedPayload,
+} from "@/lib/realtime/events";
 import {
   changeMemberRole,
   inviteMember,
@@ -85,6 +93,7 @@ function WorkspaceDetailContent() {
   const params = useParams<{ workspaceId: string }>();
   const router = useRouter();
   const workspaceId = params.workspaceId;
+  useRealtimeRoom(workspaceRoom(workspaceId));
 
   const cached = useEntityCache((s) => s.workspaces[workspaceId]);
   const [workspace, setWorkspace] = useState<WorkspaceDetail | null>(
@@ -112,6 +121,7 @@ function WorkspaceDetailContent() {
     return peekWorkspaceRevealPending()?.color ?? null;
   });
   const revealFinishedFor = useRef<string | null>(null);
+  const workspaceEventAtRef = useRef<string | null>(null);
 
   const canInvite = workspace?.myMembership?.permissions.includes("member:invite")
     || workspace?.myMembership?.isOwner;
@@ -165,6 +175,8 @@ function WorkspaceDetailContent() {
     }
   }, [workspaceId, router, applyPage]);
 
+  useRealtimeSnapshotResync(load);
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -199,6 +211,25 @@ function WorkspaceDetailContent() {
       cancelled = true;
     };
   }, [workspaceId, workspace]);
+
+  useEffect(() => {
+    const socket = connectRealtime();
+    const onWorkspaceChanged = (payload: WorkspaceChangedPayload) => {
+      if (payload.workspaceId !== workspaceId) return;
+      if (
+        workspaceEventAtRef.current &&
+        payload.occurredAt <= workspaceEventAtRef.current
+      ) {
+        return;
+      }
+      workspaceEventAtRef.current = payload.occurredAt;
+      void load();
+    };
+    socket.on(SERVER_EVENT.WORKSPACE_CHANGED, onWorkspaceChanged);
+    return () => {
+      socket.off(SERVER_EVENT.WORKSPACE_CHANGED, onWorkspaceChanged);
+    };
+  }, [workspaceId, load]);
 
   async function onInvite(e: React.FormEvent) {
     e.preventDefault();
