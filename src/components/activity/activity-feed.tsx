@@ -25,6 +25,7 @@ export function ActivityFeed({
   showLoadMore = false,
   showAbsoluteTime = false,
   className = "",
+  refreshToken = 0,
 }: {
   workspaceId: string;
   taskId?: string;
@@ -36,6 +37,7 @@ export function ActivityFeed({
   showLoadMore?: boolean;
   showAbsoluteTime?: boolean;
   className?: string;
+  refreshToken?: number;
 }) {
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -114,7 +116,7 @@ export function ActivityFeed({
   useEffect(() => {
     const timeoutId = window.setTimeout(() => void load(1, false), 0);
     return () => window.clearTimeout(timeoutId);
-  }, [load]);
+  }, [load, refreshToken]);
 
   if (loading) {
     return (

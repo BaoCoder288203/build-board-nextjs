@@ -22,6 +22,7 @@ export const SERVER_EVENT = {
   COMMENT_UPDATED: "comment:updated",
   COMMENT_DELETED: "comment:deleted",
   COMMENT_REACTION: "comment:reaction",
+  NOTIFICATION_NEW: "notification:new",
 } as const;
 
 export type RoomKind = "workspace" | "board" | "task";
@@ -37,6 +38,10 @@ export function boardRoom(boardId: string): RoomKey {
 
 export function taskRoom(taskId: string): RoomKey {
   return `task:${taskId}`;
+}
+
+export function userRoom(userId: string) {
+  return `user:${userId}`;
 }
 
 export type RoomJoinPayload = { room: RoomKey };
@@ -210,5 +215,33 @@ export type CommentDeletedPayload = {
   commentId: string;
   parentCommentId?: string | null;
   actorId: string;
+  occurredAt: string;
+};
+
+export type NotificationRealtimeItem = {
+  id: string;
+  notificationId: string;
+  workspaceId: string;
+  recipientId: string;
+  senderId: string | null;
+  entityType: string;
+  entityId: string;
+  notificationType: string;
+  title: string;
+  message: string;
+  isRead: boolean;
+  readAt: string | null;
+  metadata: unknown;
+  createdAt: string;
+  sender: {
+    id: string;
+    fullName: string;
+    email: string;
+    avatar: string | null;
+  } | null;
+};
+
+export type NotificationNewPayload = {
+  notification: NotificationRealtimeItem;
   occurredAt: string;
 };

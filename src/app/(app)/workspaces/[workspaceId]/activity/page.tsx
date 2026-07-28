@@ -3,13 +3,25 @@
 import { ArrowLeft, Filter, RotateCcw } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ActivityFeed } from "@/components/activity/activity-feed";
 import { AppShell } from "@/components/app-shell";
 import { Button, buttonClassName } from "@/components/ui/button";
+import { useRealtimeRoom } from "@/hooks/use-realtime-room";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/ui/label";
 import type { ActivitySearchFilters } from "@/lib/activities";
+import { connectRealtime } from "@/lib/realtime/socket-client";
+import {
+  SERVER_EVENT,
+  workspaceRoom,
+  type CommentDeletedPayload,
+  type CommentRealtimePayload,
+  type TaskCreatedPayload,
+  type TaskDeletedPayload,
+  type TaskMovedPayload,
+  type TaskUpdatedPayload,
+} from "@/lib/realtime/events";
 import { toastFromError } from "@/lib/toast";
 import {
   fetchMembers,
@@ -68,6 +80,7 @@ function startOfLocalDay(value: string): string | undefined {
 
 export default function WorkspaceActivityPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
+  useRealtimeRoom(workspaceRoom(workspaceId));
   const [workspace, setWorkspace] = useState<WorkspaceDetail | null>(null);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [loadingWorkspace, setLoadingWorkspace] = useState(true);
@@ -78,6 +91,8 @@ export default function WorkspaceActivityPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [filters, setFilters] = useState<ActivitySearchFilters>({});
+  const [refreshToken, setRefreshToken] = useState(0);
+  const refreshTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,6 +115,50 @@ export default function WorkspaceActivityPage() {
     void loadWorkspace();
     return () => {
       cancelled = true;
+    };
+  }, [workspaceId]);
+
+  useEffect(() => {
+    const socket = connectRealtime();
+    const onRealtimeChange = (
+      payload:
+        | TaskCreatedPayload
+        | TaskUpdatedPayload
+        | TaskMovedPayload
+        | TaskDeletedPayload
+        | CommentRealtimePayload
+        | CommentDeletedPayload,
+    ) => {
+      const payloadWorkspaceId =
+        "workspaceId" in payload ? payload.workspaceId : payload.task.workspaceId;
+      if (payloadWorkspaceId !== workspaceId) return;
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = window.setTimeout(() => {
+        setRefreshToken((value) => value + 1);
+      }, 300);
+    };
+    socket.on(SERVER_EVENT.WORKSPACE_CHANGED, onRealtimeChange);
+    socket.on(SERVER_EVENT.BOARD_CHANGED, onRealtimeChange);
+    socket.on(SERVER_EVENT.TASK_CREATED, onRealtimeChange);
+    socket.on(SERVER_EVENT.TASK_UPDATED, onRealtimeChange);
+    socket.on(SERVER_EVENT.TASK_MOVED, onRealtimeChange);
+    socket.on(SERVER_EVENT.TASK_DELETED, onRealtimeChange);
+    socket.on(SERVER_EVENT.COMMENT_CREATED, onRealtimeChange);
+    socket.on(SERVER_EVENT.COMMENT_UPDATED, onRealtimeChange);
+    socket.on(SERVER_EVENT.COMMENT_DELETED, onRealtimeChange);
+    socket.on(SERVER_EVENT.COMMENT_REACTION, onRealtimeChange);
+    return () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
+      socket.off(SERVER_EVENT.WORKSPACE_CHANGED, onRealtimeChange);
+      socket.off(SERVER_EVENT.BOARD_CHANGED, onRealtimeChange);
+      socket.off(SERVER_EVENT.TASK_CREATED, onRealtimeChange);
+      socket.off(SERVER_EVENT.TASK_UPDATED, onRealtimeChange);
+      socket.off(SERVER_EVENT.TASK_MOVED, onRealtimeChange);
+      socket.off(SERVER_EVENT.TASK_DELETED, onRealtimeChange);
+      socket.off(SERVER_EVENT.COMMENT_CREATED, onRealtimeChange);
+      socket.off(SERVER_EVENT.COMMENT_UPDATED, onRealtimeChange);
+      socket.off(SERVER_EVENT.COMMENT_DELETED, onRealtimeChange);
+      socket.off(SERVER_EVENT.COMMENT_REACTION, onRealtimeChange);
     };
   }, [workspaceId]);
 
@@ -270,6 +329,7 @@ export default function WorkspaceActivityPage() {
             filters={filters}
             showLoadMore
             showAbsoluteTime
+            refreshToken={refreshToken}
           />
         </section>
       </div>
