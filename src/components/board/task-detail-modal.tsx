@@ -51,6 +51,7 @@ type ActionKey =
 
 type Props = {
   task: TaskCard;
+  boardId?: string | null;
   workspaceId?: string | null;
   projectId?: string | null;
   onClose: () => void;
@@ -153,6 +154,7 @@ function initials(name: string) {
 
 export function TaskDetailModal({
   task,
+  boardId,
   workspaceId,
   projectId,
   onClose,
@@ -675,6 +677,7 @@ export function TaskDetailModal({
             <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
               <TaskCommentPanel
                 taskId={task.id}
+                boardId={boardId ?? undefined}
                 workspaceId={workspaceId}
                 onCountChange={onCommentsCount}
                 variant="sidebar"

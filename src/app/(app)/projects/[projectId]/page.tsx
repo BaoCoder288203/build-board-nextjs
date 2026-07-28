@@ -5,11 +5,19 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { useRealtimeRoom } from "@/hooks/use-realtime-room";
+import { useRealtimeSnapshotResync } from "@/hooks/use-realtime-snapshot-resync";
 import { BoardCover } from "@/components/visual/board-cover";
 import { Button, buttonClassName } from "@/components/ui/button";
 import { Field } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
+import { connectRealtime } from "@/lib/realtime/socket-client";
+import {
+  SERVER_EVENT,
+  workspaceRoom,
+  type WorkspaceChangedPayload,
+} from "@/lib/realtime/events";
 import { navigateWithCover } from "@/lib/route-cover";
 import { toastFromError, toastSuccess } from "@/lib/toast";
 import {
@@ -43,6 +51,7 @@ function ProjectDetailContent() {
   const [boardName, setBoardName] = useState("");
   const [creating, setCreating] = useState(false);
   const [boardModalOpen, setBoardModalOpen] = useState(false);
+  useRealtimeRoom(project?.workspaceId ? workspaceRoom(project.workspaceId) : null);
 
   const applyPage = useCallback(
     (page: { project: ProjectSummary; boards: BoardSummary[] }) => {
@@ -67,6 +76,8 @@ function ProjectDetailContent() {
     }
   }, [projectId, router, applyPage]);
 
+  useRealtimeSnapshotResync(load);
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -77,6 +88,20 @@ function ProjectDetailContent() {
     setBoards(cached.boards);
     setLoading(false);
   }, [cached]);
+
+  useEffect(() => {
+    if (!project?.workspaceId) return;
+    const socket = connectRealtime();
+    const onWorkspaceChanged = (payload: WorkspaceChangedPayload) => {
+      if (payload.workspaceId !== project.workspaceId) return;
+      if (payload.projectId && payload.projectId !== projectId) return;
+      void load();
+    };
+    socket.on(SERVER_EVENT.WORKSPACE_CHANGED, onWorkspaceChanged);
+    return () => {
+      socket.off(SERVER_EVENT.WORKSPACE_CHANGED, onWorkspaceChanged);
+    };
+  }, [project?.workspaceId, projectId, load]);
 
   function closeBoardModal() {
     if (creating) return;
