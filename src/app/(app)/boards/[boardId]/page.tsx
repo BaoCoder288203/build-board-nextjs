@@ -30,7 +30,20 @@ import { NotificationBell } from "@/components/notifications/notification-bell";
 import { AppShell } from "@/components/app-shell";
 import { buttonClassName } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useRealtimeRoom } from "@/hooks/use-realtime-room";
+import { useRealtimeSnapshotResync } from "@/hooks/use-realtime-snapshot-resync";
+import { connectRealtime } from "@/lib/realtime/socket-client";
+import {
+  type BoardChangedPayload,
+  SERVER_EVENT,
+  boardRoom,
+  type TaskCreatedPayload,
+  type TaskDeletedPayload,
+  type TaskMovedPayload,
+  type TaskUpdatedPayload,
+} from "@/lib/realtime/events";
 import { UserAvatarMenu } from "@/components/user-avatar-menu";
+import { useAuthStore } from "@/stores/auth-store";
 import {
   BOARD_SHELL_BG,
   peekBoardSwitchPending,
@@ -66,6 +79,7 @@ import {
   type TaskCard,
   type TaskPriority,
 } from "@/lib/tasks";
+import { useRealtimeStore } from "@/stores/realtime-store";
 
 const PRIORITY_STYLE: Record<TaskPriority, string> = {
   LOW: "bg-slate-100 text-slate-700",
@@ -73,6 +87,12 @@ const PRIORITY_STYLE: Record<TaskPriority, string> = {
   HIGH: "bg-amber-100 text-amber-900",
   URGENT: "bg-red-100 text-red-800",
 };
+
+const EMPTY_PRESENCE: Array<{
+  id: string;
+  fullName: string;
+  avatar: string | null;
+}> = [];
 
 type DragState = {
   taskId: string;
@@ -85,6 +105,17 @@ function BoardViewContent() {
   const params = useParams<{ boardId: string }>();
   const router = useRouter();
   const boardId = params.boardId;
+  const activeBoardRoom = boardRoom(boardId);
+  useRealtimeRoom(activeBoardRoom);
+  const meId = useAuthStore((s) => s.user?.id);
+  const rtStatus = useRealtimeStore((s) => s.status);
+  const roomPresence = useRealtimeStore(
+    (s) => s.roomPresence[activeBoardRoom] ?? EMPTY_PRESENCE,
+  );
+  const otherPresence = useMemo(
+    () => roomPresence.filter((member) => member.id !== meId),
+    [roomPresence, meId],
+  );
 
   const [board, setBoard] = useState<BoardDetail | null>(
     () => getBoardPageCache(boardId)?.board ?? null,
@@ -113,6 +144,9 @@ function BoardViewContent() {
   const addCardRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const dragRef = useRef<DragState | null>(null);
   const canvasRef = useRef<BoardCanvasHandle>(null);
+  const boardRef = useRef<BoardDetail | null>(null);
+  const taskEventAtRef = useRef<Record<string, string>>({});
+  const boardEventAtRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     const cached = getBoardPageCache(boardId);
@@ -135,6 +169,8 @@ function BoardViewContent() {
       setLoading(false);
     }
   }, [boardId, router]);
+
+  useRealtimeSnapshotResync(load);
 
   useEffect(() => {
     const cached = getBoardPageCache(boardId);
@@ -160,6 +196,15 @@ function BoardViewContent() {
   }, [focusAddCardFor]);
 
   const columns = useMemo(() => board?.columns ?? [], [board]);
+
+  useEffect(() => {
+    boardRef.current = board;
+  }, [board]);
+
+  useEffect(() => {
+    taskEventAtRef.current = {};
+    boardEventAtRef.current = null;
+  }, [boardId]);
 
   const shellStyle =
     workspaceCanvasStyle(workspaceTheme) ?? { background: BOARD_SHELL_BG };
@@ -351,6 +396,173 @@ function BoardViewContent() {
       };
     });
   }
+
+  function applyTaskCreated(task: TaskCard) {
+    setBoard((prev) => {
+      if (!prev) return prev;
+      const exists = prev.columns.some((col) =>
+        (col.tasks ?? []).some((item) => item.id === task.id),
+      );
+      if (exists) {
+        return {
+          ...prev,
+          columns: prev.columns.map((col) => ({
+            ...col,
+            tasks: (col.tasks ?? []).map((item) =>
+              item.id === task.id ? { ...item, ...task } : item,
+            ),
+          })),
+        };
+      }
+      return {
+        ...prev,
+        tasksCount: (prev.tasksCount ?? 0) + 1,
+        columns: prev.columns.map((col) => {
+          if (col.id !== task.columnId) return col;
+          const nextTasks = [...(col.tasks ?? []), task].sort(
+            (a, b) => a.position - b.position,
+          );
+          return { ...col, tasks: nextTasks };
+        }),
+      };
+    });
+  }
+
+  function applyTaskDeleted(taskId: string) {
+    setSelected((prev) => (prev?.id === taskId ? null : prev));
+    setBoard((prev) => {
+      if (!prev) return prev;
+      let removed = false;
+      const nextColumns = prev.columns.map((col) => {
+        const before = col.tasks ?? [];
+        const after = before.filter((task) => task.id !== taskId);
+        if (after.length !== before.length) removed = true;
+        return { ...col, tasks: after };
+      });
+      if (!removed) return prev;
+      return {
+        ...prev,
+        tasksCount: Math.max(0, (prev.tasksCount ?? 0) - 1),
+        columns: nextColumns,
+      };
+    });
+  }
+
+  function applyTaskMoved(payload: TaskMovedPayload) {
+    setBoard((prev) => {
+      if (!prev) return prev;
+      let movingTask: TaskCard | null = null;
+      const removedColumns = prev.columns.map((col) => {
+        const before = col.tasks ?? [];
+        const after = before.filter((task) => {
+          if (task.id !== payload.taskId) return true;
+          movingTask = {
+            ...task,
+            columnId: payload.destinationColumnId,
+            position: payload.newPosition,
+          };
+          return false;
+        });
+        return { ...col, tasks: after };
+      });
+      if (!movingTask) return prev;
+      return {
+        ...prev,
+        columns: removedColumns.map((col) => {
+          if (col.id !== payload.destinationColumnId) return col;
+          const merged = [...(col.tasks ?? []), movingTask!].sort(
+            (a, b) => a.position - b.position,
+          );
+          return { ...col, tasks: merged };
+        }),
+      };
+    });
+  }
+
+  useEffect(() => {
+    const socket = connectRealtime();
+    const shouldAcceptTaskEvent = (taskId: string, occurredAt: string) => {
+      const prev = taskEventAtRef.current[taskId];
+      if (prev && occurredAt <= prev) return false;
+      taskEventAtRef.current[taskId] = occurredAt;
+      return true;
+    };
+    const onTaskMoved = (payload: TaskMovedPayload) => {
+      if (payload.boardId !== boardId) return;
+      if (!shouldAcceptTaskEvent(payload.taskId, payload.occurredAt)) return;
+      const snapshot = boardRef.current;
+      const hasTask = snapshot?.columns.some((col) =>
+        (col.tasks ?? []).some((task) => task.id === payload.taskId),
+      );
+      if (!hasTask) {
+        void load();
+        return;
+      }
+      applyTaskMoved(payload);
+    };
+    const onTaskCreated = (payload: TaskCreatedPayload) => {
+      if (payload.task.boardId !== boardId) return;
+      if (!shouldAcceptTaskEvent(payload.task.id, payload.occurredAt)) return;
+      const snapshot = boardRef.current;
+      const hasColumn = snapshot?.columns.some(
+        (col) => col.id === payload.task.columnId,
+      );
+      if (!hasColumn) {
+        void load();
+        return;
+      }
+      applyTaskCreated(payload.task as unknown as TaskCard);
+    };
+    const onTaskUpdated = (payload: TaskUpdatedPayload) => {
+      if (payload.task.boardId !== boardId) return;
+      if (!shouldAcceptTaskEvent(payload.task.id, payload.occurredAt)) return;
+      const snapshot = boardRef.current;
+      const hasTask = snapshot?.columns.some((col) =>
+        (col.tasks ?? []).some((task) => task.id === payload.task.id),
+      );
+      if (!hasTask) {
+        void load();
+        return;
+      }
+      applyTaskUpdate(payload.task as unknown as TaskCard);
+    };
+    const onTaskDeleted = (payload: TaskDeletedPayload) => {
+      if (payload.boardId !== boardId) return;
+      if (!shouldAcceptTaskEvent(payload.taskId, payload.occurredAt)) return;
+      const snapshot = boardRef.current;
+      const hasTask = snapshot?.columns.some((col) =>
+        (col.tasks ?? []).some((task) => task.id === payload.taskId),
+      );
+      if (!hasTask) {
+        void load();
+        return;
+      }
+      applyTaskDeleted(payload.taskId);
+    };
+    const onBoardChanged = (payload: BoardChangedPayload) => {
+      if (payload.boardId !== boardId) return;
+      if (
+        boardEventAtRef.current &&
+        payload.occurredAt <= boardEventAtRef.current
+      ) {
+        return;
+      }
+      boardEventAtRef.current = payload.occurredAt;
+      void load();
+    };
+    socket.on(SERVER_EVENT.BOARD_CHANGED, onBoardChanged);
+    socket.on(SERVER_EVENT.TASK_CREATED, onTaskCreated);
+    socket.on(SERVER_EVENT.TASK_MOVED, onTaskMoved);
+    socket.on(SERVER_EVENT.TASK_UPDATED, onTaskUpdated);
+    socket.on(SERVER_EVENT.TASK_DELETED, onTaskDeleted);
+    return () => {
+      socket.off(SERVER_EVENT.BOARD_CHANGED, onBoardChanged);
+      socket.off(SERVER_EVENT.TASK_CREATED, onTaskCreated);
+      socket.off(SERVER_EVENT.TASK_MOVED, onTaskMoved);
+      socket.off(SERVER_EVENT.TASK_UPDATED, onTaskUpdated);
+      socket.off(SERVER_EVENT.TASK_DELETED, onTaskDeleted);
+    };
+  }, [boardId, load]);
 
   async function onDeleteTask() {
     if (!selected) return;
@@ -563,9 +775,57 @@ function BoardViewContent() {
               {board.project?.name ?? "Board"} · {board.columns.length} columns ·{" "}
               {board.tasksCount ?? 0} tasks
             </p>
+            <div className="mt-1 flex items-center gap-2 text-[11px] text-bb-muted">
+              <span
+                className={`inline-block h-2 w-2 rounded-full ${
+                  rtStatus === "connected"
+                    ? "bg-emerald-500"
+                    : rtStatus === "reconnecting" || rtStatus === "connecting"
+                      ? "bg-amber-500"
+                      : "bg-slate-400"
+                }`}
+              />
+              <span>
+                {rtStatus === "connected"
+                  ? "Realtime connected"
+                  : rtStatus === "reconnecting" || rtStatus === "connecting"
+                    ? "Realtime reconnecting..."
+                    : "Realtime offline"}
+              </span>
+              {otherPresence.length > 0 ? <span>· {otherPresence.length} online</span> : null}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {otherPresence.length > 0 ? (
+            <div className="hidden items-center -space-x-1.5 sm:flex">
+              {otherPresence.slice(0, 4).map((member) =>
+                member.avatar ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={member.id}
+                    src={member.avatar}
+                    alt={member.fullName}
+                    title={member.fullName}
+                    className="h-7 w-7 rounded-full object-cover ring-2 ring-white"
+                  />
+                ) : (
+                  <span
+                    key={member.id}
+                    title={member.fullName}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-bb-blue text-[10px] font-bold text-white ring-2 ring-white"
+                  >
+                    {member.fullName
+                      .split(" ")
+                      .map((p) => p[0])
+                      .join("")
+                      .slice(0, 2)
+                      .toUpperCase()}
+                  </span>
+                ),
+              )}
+            </div>
+          ) : null}
           {board.project?.workspaceId ? (
             <>
               <button
@@ -782,6 +1042,7 @@ function BoardViewContent() {
       {selected && board ? (
         <TaskDetailModal
           task={selected}
+          boardId={boardId}
           workspaceId={board.project?.workspaceId ?? null}
           projectId={board.project?.id ?? null}
           onClose={() => setSelected(null)}
