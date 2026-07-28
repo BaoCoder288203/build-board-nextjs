@@ -1,9 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useEffect, useState } from "react";
 import { BoardIllustration } from "@/components/brand/board-illustration";
 import {
+  useAdaptiveDpr,
   useInView,
+  useIsCompact,
   usePrefersReducedMotion,
   useWebGLSupport,
 } from "@/components/home/home-motion";
@@ -27,10 +30,17 @@ const FRAME =
 
 export function HowItWorksVisual() {
   const reducedMotion = usePrefersReducedMotion();
+  const compact = useIsCompact();
+  const dprRange = useAdaptiveDpr(compact);
   const webglOk = useWebGLSupport();
   const { ref, inView } = useInView(0.25);
+  const [shouldRenderScene, setShouldRenderScene] = useState(false);
 
-  if (!webglOk) {
+  useEffect(() => {
+    if (inView) setShouldRenderScene(true);
+  }, [inView]);
+
+  if (!webglOk || reducedMotion) {
     return (
       <div className={`flex items-center justify-center p-4 ${FRAME}`}>
         <BoardIllustration className="w-full max-w-sm" floating={false} />
@@ -40,7 +50,17 @@ export function HowItWorksVisual() {
 
   return (
     <div ref={ref} className={FRAME}>
-      <HowItWorksScene active={inView} reducedMotion={reducedMotion} />
+      {shouldRenderScene ? (
+        <HowItWorksScene
+          active={inView}
+          reducedMotion={reducedMotion}
+          dprRange={dprRange}
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center p-4">
+          <BoardIllustration className="w-full max-w-sm opacity-80" floating={false} />
+        </div>
+      )}
     </div>
   );
 }

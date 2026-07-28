@@ -5,11 +5,15 @@ import {
   Calendar,
   CheckSquare,
   Eye,
+  LogIn,
+  LogOut,
   MessageSquare,
   Paperclip,
+  PhoneOff,
   Pin,
   Plus,
   Share2,
+  Video,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -26,17 +30,26 @@ import { SwitchBoardsBar } from "@/components/board/switch-boards-bar";
 import { TaskDetailModal } from "@/components/board/task-detail-modal";
 import { BoardActivityButton } from "@/components/activity/board-activity-button";
 import { BoardShareModal } from "@/components/board/board-share-modal";
+import { MeetingCallModal } from "@/components/meeting/meeting-call-modal";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { AppShell } from "@/components/app-shell";
 import { buttonClassName } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useRealtimeRoom } from "@/hooks/use-realtime-room";
+import { useMeetingWebRtc } from "@/hooks/use-meeting-webrtc";
 import { useRealtimeSnapshotResync } from "@/hooks/use-realtime-snapshot-resync";
 import { connectRealtime } from "@/lib/realtime/socket-client";
 import {
   type BoardChangedPayload,
+  type MeetingCreatedPayload,
+  type MeetingEndedPayload,
+  type MeetingJoinedPayload,
+  type MeetingLeftPayload,
+  type MeetingParticipantsPayload,
+  type MeetingItem,
   SERVER_EVENT,
   boardRoom,
+  meetingRoom,
   type TaskCreatedPayload,
   type TaskDeletedPayload,
   type TaskMovedPayload,
@@ -80,6 +93,13 @@ import {
   type TaskPriority,
 } from "@/lib/tasks";
 import { useRealtimeStore } from "@/stores/realtime-store";
+import {
+  endMeeting,
+  fetchActiveMeeting,
+  joinMeeting,
+  leaveMeeting,
+  startMeeting,
+} from "@/lib/meetings";
 
 const PRIORITY_STYLE: Record<TaskPriority, string> = {
   LOW: "bg-slate-100 text-slate-700",
@@ -141,12 +161,39 @@ function BoardViewContent() {
   const [focusAddCardFor, setFocusAddCardFor] = useState<string | null>(null);
   const [switchingBoard, setSwitchingBoard] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [activeMeeting, setActiveMeeting] = useState<MeetingItem | null>(null);
+  const [meetingBusy, setMeetingBusy] = useState(false);
+  const [callMinimized, setCallMinimized] = useState(false);
   const addCardRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const dragRef = useRef<DragState | null>(null);
   const canvasRef = useRef<BoardCanvasHandle>(null);
   const boardRef = useRef<BoardDetail | null>(null);
   const taskEventAtRef = useRef<Record<string, string>>({});
   const boardEventAtRef = useRef<string | null>(null);
+  const meName = useAuthStore((s) => s.user?.fullName ?? "You");
+
+  const isInMeeting = useMemo(() => {
+    if (!meId || !activeMeeting) return false;
+    return activeMeeting.participants.some((p) => p.userId === meId && p.leftAt == null);
+  }, [activeMeeting, meId]);
+  const activeMeetingRoom = useMemo(
+    () =>
+      activeMeeting?.status === "ACTIVE" && isInMeeting
+        ? meetingRoom(activeMeeting.id)
+        : null,
+    [activeMeeting, isInMeeting],
+  );
+  useRealtimeRoom(activeMeetingRoom);
+  const activeParticipants = useMemo(
+    () => activeMeeting?.participants.filter((p) => p.leftAt == null) ?? [],
+    [activeMeeting],
+  );
+  const webrtc = useMeetingWebRtc({
+    meetingId: activeMeeting?.status === "ACTIVE" ? activeMeeting.id : null,
+    enabled: Boolean(activeMeeting?.status === "ACTIVE" && isInMeeting),
+    meId: meId ?? null,
+    participants: activeParticipants,
+  });
 
   const load = useCallback(async () => {
     const cached = getBoardPageCache(boardId);
@@ -172,6 +219,15 @@ function BoardViewContent() {
 
   useRealtimeSnapshotResync(load);
 
+  const loadActiveMeeting = useCallback(async () => {
+    try {
+      const active = await fetchActiveMeeting(boardId);
+      setActiveMeeting(active);
+    } catch {
+      setActiveMeeting(null);
+    }
+  }, [boardId]);
+
   useEffect(() => {
     const cached = getBoardPageCache(boardId);
     if (cached?.board) {
@@ -187,7 +243,8 @@ function BoardViewContent() {
     setDrag(null);
     dragRef.current = null;
     void load();
-  }, [load, boardId]);
+    void loadActiveMeeting();
+  }, [load, loadActiveMeeting, boardId]);
 
   useEffect(() => {
     if (!focusAddCardFor) return;
@@ -555,14 +612,134 @@ function BoardViewContent() {
     socket.on(SERVER_EVENT.TASK_MOVED, onTaskMoved);
     socket.on(SERVER_EVENT.TASK_UPDATED, onTaskUpdated);
     socket.on(SERVER_EVENT.TASK_DELETED, onTaskDeleted);
+    const onMeetingCreated = (payload: MeetingCreatedPayload) => {
+      if (payload.meeting.boardId !== boardId) return;
+      setActiveMeeting({
+        ...payload.meeting,
+        participants: payload.participants,
+      });
+    };
+    const onMeetingParticipants = (payload: MeetingParticipantsPayload) => {
+      if (payload.boardId !== boardId) return;
+      setActiveMeeting((prev) => {
+        if (!prev || prev.id !== payload.meetingId) return prev;
+        return { ...prev, participants: payload.participants };
+      });
+    };
+    const onMeetingJoined = (payload: MeetingJoinedPayload) => {
+      if (payload.boardId !== boardId) return;
+      if (payload.actorId !== meId) {
+        toastSuccess(`${payload.participant.fullName} joined the meeting`);
+      }
+    };
+    const onMeetingLeft = (payload: MeetingLeftPayload) => {
+      if (payload.boardId !== boardId) return;
+      if (payload.actorId !== meId) {
+        toastSuccess(`${payload.participant.fullName} left the meeting`);
+      }
+    };
+    const onMeetingEnded = (payload: MeetingEndedPayload) => {
+      if (payload.boardId !== boardId) return;
+      setCallMinimized(false);
+      setActiveMeeting((prev) =>
+        prev && prev.id === payload.meetingId
+          ? { ...prev, status: "ENDED", endedAt: payload.occurredAt, participants: [] }
+          : prev,
+      );
+      if (payload.endedBy !== meId) {
+        toastSuccess("Meeting ended");
+      }
+      void loadActiveMeeting();
+    };
+    socket.on(SERVER_EVENT.MEETING_CREATED, onMeetingCreated);
+    socket.on(SERVER_EVENT.MEETING_JOINED, onMeetingJoined);
+    socket.on(SERVER_EVENT.MEETING_LEFT, onMeetingLeft);
+    socket.on(SERVER_EVENT.MEETING_PARTICIPANTS, onMeetingParticipants);
+    socket.on(SERVER_EVENT.MEETING_ENDED, onMeetingEnded);
     return () => {
       socket.off(SERVER_EVENT.BOARD_CHANGED, onBoardChanged);
       socket.off(SERVER_EVENT.TASK_CREATED, onTaskCreated);
       socket.off(SERVER_EVENT.TASK_MOVED, onTaskMoved);
       socket.off(SERVER_EVENT.TASK_UPDATED, onTaskUpdated);
       socket.off(SERVER_EVENT.TASK_DELETED, onTaskDeleted);
+      socket.off(SERVER_EVENT.MEETING_CREATED, onMeetingCreated);
+      socket.off(SERVER_EVENT.MEETING_JOINED, onMeetingJoined);
+      socket.off(SERVER_EVENT.MEETING_LEFT, onMeetingLeft);
+      socket.off(SERVER_EVENT.MEETING_PARTICIPANTS, onMeetingParticipants);
+      socket.off(SERVER_EVENT.MEETING_ENDED, onMeetingEnded);
     };
-  }, [boardId, load]);
+  }, [boardId, load, loadActiveMeeting, meId]);
+
+  async function onStartMeeting() {
+    if (meetingBusy) return;
+    setMeetingBusy(true);
+    try {
+      const created = await startMeeting(boardId);
+      setActiveMeeting(created);
+      setCallMinimized(false);
+      toastSuccess("Meeting started");
+    } catch (error) {
+      toastFromError(error);
+      await loadActiveMeeting();
+    } finally {
+      setMeetingBusy(false);
+    }
+  }
+
+  async function onJoinMeeting() {
+    if (!activeMeeting || meetingBusy) return;
+    setMeetingBusy(true);
+    try {
+      const joined = await joinMeeting(activeMeeting.id);
+      setActiveMeeting({
+        ...joined.meeting,
+        participants: joined.participants,
+      });
+      setCallMinimized(false);
+      toastSuccess("Joined meeting");
+    } catch (error) {
+      toastFromError(error);
+    } finally {
+      setMeetingBusy(false);
+    }
+  }
+
+  async function onLeaveMeeting() {
+    if (!activeMeeting || meetingBusy) return;
+    setMeetingBusy(true);
+    try {
+      await leaveMeeting(activeMeeting.id);
+      await loadActiveMeeting();
+      setCallMinimized(false);
+      toastSuccess("Left meeting");
+    } catch (error) {
+      toastFromError(error);
+    } finally {
+      setMeetingBusy(false);
+    }
+  }
+
+  async function onEndMeeting() {
+    if (!activeMeeting || meetingBusy) return;
+    const ok = await confirm({
+      title: "End meeting?",
+      description: "This will close the active board meeting for everyone.",
+      confirmLabel: "End meeting",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setMeetingBusy(true);
+    try {
+      await endMeeting(activeMeeting.id);
+      setActiveMeeting(null);
+      setCallMinimized(false);
+      toastSuccess("Meeting ended");
+    } catch (error) {
+      toastFromError(error);
+    } finally {
+      setMeetingBusy(false);
+    }
+  }
 
   async function onDeleteTask() {
     if (!selected) return;
@@ -793,10 +970,110 @@ function BoardViewContent() {
                     : "Realtime offline"}
               </span>
               {otherPresence.length > 0 ? <span>· {otherPresence.length} online</span> : null}
+              {activeMeeting?.status === "ACTIVE" ? (
+                <span>· Meeting live ({activeParticipants.length})</span>
+              ) : null}
             </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {activeMeeting?.status === "ACTIVE" ? (
+            <>
+              {activeParticipants.length > 0 ? (
+                <div className="hidden items-center -space-x-1.5 sm:flex">
+                  {activeParticipants.slice(0, 4).map((participant) =>
+                    participant.avatar ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        key={participant.userId}
+                        src={participant.avatar}
+                        alt={participant.fullName}
+                        title={`${participant.fullName}${participant.isHost ? " (Host)" : ""}`}
+                        className="h-7 w-7 rounded-full object-cover ring-2 ring-white"
+                      />
+                    ) : (
+                      <span
+                        key={participant.userId}
+                        title={`${participant.fullName}${participant.isHost ? " (Host)" : ""}`}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-[10px] font-bold text-white ring-2 ring-white"
+                      >
+                        {participant.fullName
+                          .split(" ")
+                          .map((p) => p[0])
+                          .join("")
+                          .slice(0, 2)
+                          .toUpperCase()}
+                      </span>
+                    ),
+                  )}
+                </div>
+              ) : null}
+              {isInMeeting ? (
+                <button
+                  type="button"
+                  disabled={meetingBusy}
+                  aria-label="Leave meeting"
+                  title="Leave meeting"
+                  onClick={() => void onLeaveMeeting()}
+                  className={buttonClassName({
+                    variant: "secondary",
+                    size: "sm",
+                    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+                  })}
+                >
+                  <LogOut className="h-4 w-4" strokeWidth={2} aria-hidden />
+                  Leave
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={meetingBusy}
+                  aria-label="Join meeting"
+                  title="Join meeting"
+                  onClick={() => void onJoinMeeting()}
+                  className={buttonClassName({
+                    variant: "secondary",
+                    size: "sm",
+                    className: "border-bb-blue/30 bg-bb-sky text-bb-blue",
+                  })}
+                >
+                  <LogIn className="h-4 w-4" strokeWidth={2} aria-hidden />
+                  Join
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={meetingBusy}
+                aria-label="End meeting"
+                title="End meeting"
+                onClick={() => void onEndMeeting()}
+                className={buttonClassName({
+                  variant: "secondary",
+                  size: "sm",
+                  className: "border-red-200 bg-red-50 text-red-700",
+                })}
+              >
+                <PhoneOff className="h-4 w-4" strokeWidth={2} aria-hidden />
+                End
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              disabled={meetingBusy}
+              aria-label="Start meeting"
+              title="Start meeting"
+              onClick={() => void onStartMeeting()}
+              className={buttonClassName({
+                variant: "secondary",
+                size: "sm",
+                className: "border-bb-blue/30 bg-bb-sky text-bb-blue",
+              })}
+            >
+              <Video className="h-4 w-4" strokeWidth={2} aria-hidden />
+              Meet
+            </button>
+          )}
           {otherPresence.length > 0 ? (
             <div className="hidden items-center -space-x-1.5 sm:flex">
               {otherPresence.slice(0, 4).map((member) =>
@@ -1128,6 +1405,26 @@ function BoardViewContent() {
           boardId={boardId}
           boardName={board.name}
           workspaceId={board.project.workspaceId}
+        />
+      ) : null}
+      {activeMeeting?.status === "ACTIVE" && isInMeeting ? (
+        <MeetingCallModal
+          open={activeMeeting.status === "ACTIVE" && isInMeeting}
+          minimized={callMinimized}
+          meName={meName}
+          meeting={activeMeeting}
+          localStream={webrtc.localStream}
+          remotePeers={webrtc.remotePeers}
+          activeScreenShare={webrtc.activeScreenShare}
+          audioEnabled={webrtc.audioEnabled}
+          videoEnabled={webrtc.videoEnabled}
+          screenSharing={webrtc.screenSharing}
+          onToggleAudio={webrtc.toggleAudio}
+          onToggleVideo={webrtc.toggleVideo}
+          onStartScreenShare={webrtc.startScreenShare}
+          onStopScreenShare={webrtc.stopScreenShare}
+          onLeave={onLeaveMeeting}
+          onToggleMinimize={() => setCallMinimized((prev) => !prev)}
         />
       ) : null}
     </div>
