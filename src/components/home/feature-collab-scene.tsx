@@ -154,9 +154,11 @@ function CollabBoard({
 export function FeatureCollabScene({
   active = true,
   reducedMotion = false,
+  dprRange = [1, 1.4],
 }: {
   active?: boolean;
   reducedMotion?: boolean;
+  dprRange?: [number, number];
 }) {
   return (
     <Canvas
@@ -167,7 +169,7 @@ export function FeatureCollabScene({
         background: "transparent",
         overflow: "visible",
       }}
-      dpr={[1, 1.4]}
+      dpr={dprRange}
       frameloop={active ? "always" : "never"}
       camera={{ position: [0, 0, 4.85], fov: 38, near: 0.1, far: 30 }}
       gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}

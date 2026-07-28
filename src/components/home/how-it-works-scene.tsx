@@ -250,9 +250,11 @@ function HowBoard({
 export function HowItWorksScene({
   active = true,
   reducedMotion = false,
+  dprRange = [1, 1.5],
 }: {
   active?: boolean;
   reducedMotion?: boolean;
+  dprRange?: [number, number];
 }) {
   return (
     <Canvas
@@ -263,7 +265,7 @@ export function HowItWorksScene({
         background: "transparent",
         overflow: "visible",
       }}
-      dpr={[1, 1.5]}
+      dpr={dprRange}
       frameloop={active ? "always" : "never"}
       camera={{ position: [0, 0, 6.05], fov: 40, near: 0.1, far: 30 }}
       gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}

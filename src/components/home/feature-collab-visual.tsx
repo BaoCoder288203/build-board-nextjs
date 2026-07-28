@@ -1,16 +1,23 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useEffect, useState } from "react";
 import {
+  useAdaptiveDpr,
   useInView,
+  useIsCompact,
   usePrefersReducedMotion,
   useWebGLSupport,
 } from "@/components/home/home-motion";
 
-function CollabFallback() {
+function CollabFallback({
+  className = "min-h-[260px] sm:min-h-[300px] lg:min-h-[320px]",
+}: {
+  className?: string;
+}) {
   return (
     <div
-      className="flex h-full min-h-[400px] w-full items-center justify-center p-6"
+      className={`flex h-full w-full items-center justify-center p-6 ${className}`}
       aria-hidden
     >
       <div className="relative w-full max-w-xs">
@@ -50,8 +57,15 @@ const FeatureCollabScene = dynamic(
 
 export function FeatureCollabVisual() {
   const reducedMotion = usePrefersReducedMotion();
+  const compact = useIsCompact();
+  const dprRange = useAdaptiveDpr(compact);
   const webglOk = useWebGLSupport();
   const { ref, inView } = useInView(0.2);
+  const [shouldRenderScene, setShouldRenderScene] = useState(false);
+
+  useEffect(() => {
+    if (inView) setShouldRenderScene(true);
+  }, [inView]);
 
   if (!webglOk || reducedMotion) {
     return <CollabFallback />;
@@ -62,7 +76,15 @@ export function FeatureCollabVisual() {
       ref={ref}
       className="relative h-[260px] w-full sm:h-[300px] lg:h-[320px]"
     >
-      <FeatureCollabScene active={inView} reducedMotion={false} />
+      {shouldRenderScene ? (
+        <FeatureCollabScene
+          active={inView}
+          reducedMotion={false}
+          dprRange={dprRange}
+        />
+      ) : (
+        <CollabFallback className="min-h-0" />
+      )}
     </div>
   );
 }

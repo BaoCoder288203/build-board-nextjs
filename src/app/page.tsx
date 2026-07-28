@@ -14,19 +14,28 @@ export default function HomePage() {
   return (
     <GuestOnly>
       <div className="relative overflow-x-hidden">
+        <a
+          href="#main-content"
+          className="sr-only absolute left-3 top-3 z-50 rounded-md bg-white px-3 py-2 text-sm font-semibold text-bb-ink shadow-bb focus:not-sr-only focus:outline-none focus-visible:ring-2 focus-visible:ring-bb-blue"
+        >
+          Skip to content
+        </a>
         <header className="sticky top-0 z-30 border-b border-bb-border/50 bg-bb-surface/90 backdrop-blur">
           <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4 sm:px-8">
             <Logo />
-            <nav className="hidden items-center gap-6 md:flex">
+            <nav
+              aria-label="Homepage sections"
+              className="hidden items-center gap-6 md:flex"
+            >
               <a
                 href="#how-it-works"
-                className="text-sm font-semibold text-bb-ink transition hover:text-bb-blue"
+                className="text-sm font-semibold text-bb-ink transition hover:text-bb-blue focus:outline-none focus-visible:ring-2 focus-visible:ring-bb-blue/80 focus-visible:ring-offset-2"
               >
                 How it works
               </a>
               <a
                 href="#features"
-                className="text-sm font-semibold text-bb-ink transition hover:text-bb-blue"
+                className="text-sm font-semibold text-bb-ink transition hover:text-bb-blue focus:outline-none focus-visible:ring-2 focus-visible:ring-bb-blue/80 focus-visible:ring-offset-2"
               >
                 Features
               </a>
@@ -60,11 +69,14 @@ export default function HomePage() {
           />
 
           {/* Living Kanban — full-bleed visual plane (pointer events for parallax) */}
-          <div className="absolute inset-x-0 bottom-0 top-[38%] z-[1] lg:inset-0 lg:left-[40%]">
+          <div className="absolute inset-x-0 bottom-0 top-[42%] z-[1] sm:top-[38%] lg:inset-0 lg:left-[40%]">
             <HeroVisual />
           </div>
 
-          <main className="pointer-events-none relative z-10 mx-auto flex min-h-[calc(100vh-4.5rem)] max-w-6xl flex-col justify-center px-5 pb-[42vh] pt-10 sm:px-8 lg:pb-20 lg:pt-6">
+          <main
+            id="main-content"
+            className="pointer-events-none relative z-10 mx-auto flex min-h-[calc(100vh-4.5rem)] max-w-6xl flex-col justify-center px-5 pb-[44vh] pt-8 sm:px-8 sm:pb-[42vh] sm:pt-10 lg:pb-20 lg:pt-6"
+          >
             <div className="bb-animate-fade-up pointer-events-auto max-w-xl">
               <p className="text-5xl font-extrabold tracking-tight text-bb-ink sm:text-6xl lg:text-7xl">
                 BuildBoard

@@ -21,7 +21,7 @@ export function SiteFooter() {
               <li>
                 <a
                   href="#how-it-works"
-                  className="text-sm font-medium text-bb-ink transition hover:text-bb-blue"
+                  className="text-sm font-medium text-bb-ink transition hover:text-bb-blue focus:outline-none focus-visible:ring-2 focus-visible:ring-bb-blue/80 focus-visible:ring-offset-2"
                 >
                   How it works
                 </a>
@@ -29,7 +29,7 @@ export function SiteFooter() {
               <li>
                 <a
                   href="#features"
-                  className="text-sm font-medium text-bb-ink transition hover:text-bb-blue"
+                  className="text-sm font-medium text-bb-ink transition hover:text-bb-blue focus:outline-none focus-visible:ring-2 focus-visible:ring-bb-blue/80 focus-visible:ring-offset-2"
                 >
                   Features
                 </a>
@@ -44,7 +44,7 @@ export function SiteFooter() {
               <li>
                 <Link
                   href="/login"
-                  className="text-sm font-medium text-bb-ink transition hover:text-bb-blue"
+                  className="text-sm font-medium text-bb-ink transition hover:text-bb-blue focus:outline-none focus-visible:ring-2 focus-visible:ring-bb-blue/80 focus-visible:ring-offset-2"
                 >
                   Log in
                 </Link>
@@ -52,7 +52,7 @@ export function SiteFooter() {
               <li>
                 <Link
                   href="/register"
-                  className="text-sm font-medium text-bb-ink transition hover:text-bb-blue"
+                  className="text-sm font-medium text-bb-ink transition hover:text-bb-blue focus:outline-none focus-visible:ring-2 focus-visible:ring-bb-blue/80 focus-visible:ring-offset-2"
                 >
                   Sign up
                 </Link>

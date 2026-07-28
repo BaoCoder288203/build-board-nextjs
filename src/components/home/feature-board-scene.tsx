@@ -159,9 +159,11 @@ function BoardSlice({
 export function FeatureBoardScene({
   active = true,
   reducedMotion = false,
+  dprRange = [1, 1.4],
 }: {
   active?: boolean;
   reducedMotion?: boolean;
+  dprRange?: [number, number];
 }) {
   return (
     <Canvas
@@ -172,7 +174,7 @@ export function FeatureBoardScene({
         background: "transparent",
         overflow: "visible",
       }}
-      dpr={[1, 1.4]}
+      dpr={dprRange}
       frameloop={active ? "always" : "never"}
       camera={{ position: [0, 0, 6.2], fov: 36, near: 0.1, far: 30 }}
       gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}

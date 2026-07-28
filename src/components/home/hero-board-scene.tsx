@@ -347,10 +347,10 @@ function SceneContent({
     <>
       <ambientLight intensity={0.85} />
       <directionalLight
-        castShadow
+        castShadow={!compact}
         position={[4, 6, 5]}
         intensity={1.35}
-        shadow-mapSize={[1024, 1024]}
+        shadow-mapSize={compact ? [512, 512] : [1024, 1024]}
       />
       <directionalLight position={[-3, 2, -2]} intensity={0.35} color={SKY} />
       <pointLight position={[2, 1, 3]} intensity={0.55} color={BLUE_LIGHT} />
@@ -373,15 +373,20 @@ function SceneContent({
 export function HeroBoardScene({
   reducedMotion = false,
   compact = false,
+  active = true,
+  dprRange,
 }: {
   reducedMotion?: boolean;
   compact?: boolean;
+  active?: boolean;
+  dprRange?: [number, number];
 }) {
   return (
     <Canvas
       className="h-full w-full bg-transparent"
       style={{ background: "transparent" }}
-      dpr={compact ? [1, 1.5] : [1, 2]}
+      dpr={dprRange ?? (compact ? [1, 1.5] : [1, 2])}
+      frameloop={active ? "always" : "never"}
       camera={{ position: [0, 0.2, 6.2], fov: 38, near: 0.1, far: 40 }}
       gl={{
         antialias: true,
