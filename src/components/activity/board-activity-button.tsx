@@ -3,6 +3,16 @@
 import { History } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ActivityFeed } from "@/components/activity/activity-feed";
+import { connectRealtime } from "@/lib/realtime/socket-client";
+import {
+  SERVER_EVENT,
+  type CommentDeletedPayload,
+  type CommentRealtimePayload,
+  type TaskCreatedPayload,
+  type TaskDeletedPayload,
+  type TaskMovedPayload,
+  type TaskUpdatedPayload,
+} from "@/lib/realtime/events";
 
 type Props = {
   workspaceId: string;
@@ -16,7 +26,9 @@ export function BoardActivityButton({
   projectId,
 }: Props) {
   const [open, setOpen] = useState(false);
+  const [refreshToken, setRefreshToken] = useState(0);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const refreshTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -37,6 +49,55 @@ export function BoardActivityButton({
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const socket = connectRealtime();
+    const onRealtimeChange = (
+      payload:
+        | TaskCreatedPayload
+        | TaskUpdatedPayload
+        | TaskMovedPayload
+        | TaskDeletedPayload
+        | CommentRealtimePayload
+        | CommentDeletedPayload,
+    ) => {
+      if (boardId) {
+        const payloadBoardId =
+          "boardId" in payload ? payload.boardId : payload.task.boardId;
+        if (payloadBoardId !== boardId) return;
+      } else {
+        const payloadWorkspaceId =
+          "workspaceId" in payload ? payload.workspaceId : payload.task.workspaceId;
+        if (payloadWorkspaceId !== workspaceId) return;
+      }
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = window.setTimeout(() => {
+        setRefreshToken((value) => value + 1);
+      }, 250);
+    };
+    socket.on(SERVER_EVENT.BOARD_CHANGED, onRealtimeChange);
+    socket.on(SERVER_EVENT.TASK_CREATED, onRealtimeChange);
+    socket.on(SERVER_EVENT.TASK_UPDATED, onRealtimeChange);
+    socket.on(SERVER_EVENT.TASK_MOVED, onRealtimeChange);
+    socket.on(SERVER_EVENT.TASK_DELETED, onRealtimeChange);
+    socket.on(SERVER_EVENT.COMMENT_CREATED, onRealtimeChange);
+    socket.on(SERVER_EVENT.COMMENT_UPDATED, onRealtimeChange);
+    socket.on(SERVER_EVENT.COMMENT_DELETED, onRealtimeChange);
+    socket.on(SERVER_EVENT.COMMENT_REACTION, onRealtimeChange);
+    return () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
+      socket.off(SERVER_EVENT.BOARD_CHANGED, onRealtimeChange);
+      socket.off(SERVER_EVENT.TASK_CREATED, onRealtimeChange);
+      socket.off(SERVER_EVENT.TASK_UPDATED, onRealtimeChange);
+      socket.off(SERVER_EVENT.TASK_MOVED, onRealtimeChange);
+      socket.off(SERVER_EVENT.TASK_DELETED, onRealtimeChange);
+      socket.off(SERVER_EVENT.COMMENT_CREATED, onRealtimeChange);
+      socket.off(SERVER_EVENT.COMMENT_UPDATED, onRealtimeChange);
+      socket.off(SERVER_EVENT.COMMENT_DELETED, onRealtimeChange);
+      socket.off(SERVER_EVENT.COMMENT_REACTION, onRealtimeChange);
+    };
+  }, [open, boardId, workspaceId]);
 
   return (
     <div className="relative" ref={rootRef}>
@@ -67,6 +128,7 @@ export function BoardActivityButton({
               boardId={boardId}
               projectId={projectId}
               limit={25}
+              refreshToken={refreshToken}
             />
           </div>
         </div>

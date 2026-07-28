@@ -24,6 +24,9 @@ export type TaskAssignee = {
 export type TaskCard = {
   id: string;
   taskId?: string;
+  workspaceId?: string;
+  projectId?: string;
+  boardId?: string;
   columnId: string;
   code: string;
   title: string;
@@ -47,6 +50,12 @@ export type TaskCard = {
   attachmentsCount?: number;
 };
 
+export type CalendarTasksResult = {
+  items: TaskCard[];
+  rangeStart: string;
+  rangeEnd: string;
+};
+
 export async function createTask(input: {
   columnId: string;
   title: string;
@@ -67,6 +76,20 @@ export async function fetchTasks(params: {
 }) {
   const { data } = await api.get("/tasks", { params });
   return data.data as { items: TaskCard[]; total: number };
+}
+
+export async function fetchCalendarTasks(params: {
+  workspaceId: string;
+  rangeStart: string;
+  rangeEnd: string;
+  projectId?: string;
+  boardId?: string;
+  assigneeUserId?: string;
+  priority?: TaskPriority;
+  status?: TaskStatus;
+}) {
+  const { data } = await api.get("/tasks/calendar", { params });
+  return data.data as CalendarTasksResult;
 }
 
 export async function fetchTask(taskId: string) {

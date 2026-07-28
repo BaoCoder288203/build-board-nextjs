@@ -4,14 +4,28 @@ import {
   ArrowLeft,
   CalendarClock,
   CheckSquare,
+  Clock3,
   LayoutDashboard,
   ListTodo,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityFeed } from "@/components/activity/activity-feed";
 import { AppShell } from "@/components/app-shell";
 import { buttonClassName } from "@/components/ui/button";
+import { useRealtimeRoom } from "@/hooks/use-realtime-room";
+import { connectRealtime } from "@/lib/realtime/socket-client";
+import {
+  SERVER_EVENT,
+  workspaceRoom,
+  type CommentDeletedPayload,
+  type CommentRealtimePayload,
+  type TaskCreatedPayload,
+  type TaskDeletedPayload,
+  type TaskMovedPayload,
+  type TaskUpdatedPayload,
+} from "@/lib/realtime/events";
 import {
   fetchDashboardSummary,
   fetchMyTasks,
@@ -102,39 +116,93 @@ function StatCard({
 function WorkspaceDashboardContent() {
   const params = useParams<{ workspaceId: string }>();
   const workspaceId = params.workspaceId;
+  useRealtimeRoom(workspaceRoom(workspaceId));
 
   const [workspace, setWorkspace] = useState<WorkspaceDetail | null>(null);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [myTasks, setMyTasks] = useState<DashboardTaskItem[]>([]);
   const [upcoming, setUpcoming] = useState<DashboardTaskItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activityRefreshToken, setActivityRefreshToken] = useState(0);
+  const refreshTimerRef = useRef<number | null>(null);
 
-  useEffect(() => {
+  const loadDashboard = useCallback(async () => {
     let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const [ws, sum, mine, due] = await Promise.all([
-          fetchWorkspace(workspaceId),
-          fetchDashboardSummary(workspaceId),
-          fetchMyTasks({ workspaceId, limit: 8 }),
-          fetchUpcomingTasks({ workspaceId, days: 14, limit: 8 }),
-        ]);
-        if (cancelled) return;
-        setWorkspace(ws);
-        setSummary(sum);
-        setMyTasks(mine.items);
-        setUpcoming(due.items);
-      } catch (error) {
-        toastFromError(error);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
+    setLoading(true);
+    try {
+      const [ws, sum, mine, due] = await Promise.all([
+        fetchWorkspace(workspaceId),
+        fetchDashboardSummary(workspaceId),
+        fetchMyTasks({ workspaceId, limit: 8 }),
+        fetchUpcomingTasks({ workspaceId, days: 14, limit: 8 }),
+      ]);
+      if (cancelled) return;
+      setWorkspace(ws);
+      setSummary(sum);
+      setMyTasks(mine.items);
+      setUpcoming(due.items);
+    } catch (error) {
+      toastFromError(error);
+    } finally {
+      if (!cancelled) setLoading(false);
+    }
     return () => {
       cancelled = true;
     };
   }, [workspaceId]);
+
+  useEffect(() => {
+    void loadDashboard();
+  }, [loadDashboard]);
+
+  useEffect(() => {
+    const socket = connectRealtime();
+    const onRealtimeChange = (
+      payload:
+        | TaskCreatedPayload
+        | TaskUpdatedPayload
+        | TaskMovedPayload
+        | TaskDeletedPayload
+        | CommentRealtimePayload
+        | CommentDeletedPayload,
+    ) => {
+      const payloadWorkspaceId =
+        "workspaceId" in payload ? payload.workspaceId : payload.task.workspaceId;
+      if (payloadWorkspaceId !== workspaceId) return;
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+      refreshTimerRef.current = window.setTimeout(() => {
+        void loadDashboard();
+        setActivityRefreshToken((value) => value + 1);
+      }, 300);
+    };
+    socket.on(SERVER_EVENT.WORKSPACE_CHANGED, onRealtimeChange);
+    socket.on(SERVER_EVENT.BOARD_CHANGED, onRealtimeChange);
+    socket.on(SERVER_EVENT.TASK_CREATED, onRealtimeChange);
+    socket.on(SERVER_EVENT.TASK_UPDATED, onRealtimeChange);
+    socket.on(SERVER_EVENT.TASK_MOVED, onRealtimeChange);
+    socket.on(SERVER_EVENT.TASK_DELETED, onRealtimeChange);
+    socket.on(SERVER_EVENT.COMMENT_CREATED, onRealtimeChange);
+    socket.on(SERVER_EVENT.COMMENT_UPDATED, onRealtimeChange);
+    socket.on(SERVER_EVENT.COMMENT_DELETED, onRealtimeChange);
+    socket.on(SERVER_EVENT.COMMENT_REACTION, onRealtimeChange);
+    return () => {
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+      socket.off(SERVER_EVENT.WORKSPACE_CHANGED, onRealtimeChange);
+      socket.off(SERVER_EVENT.BOARD_CHANGED, onRealtimeChange);
+      socket.off(SERVER_EVENT.TASK_CREATED, onRealtimeChange);
+      socket.off(SERVER_EVENT.TASK_UPDATED, onRealtimeChange);
+      socket.off(SERVER_EVENT.TASK_MOVED, onRealtimeChange);
+      socket.off(SERVER_EVENT.TASK_DELETED, onRealtimeChange);
+      socket.off(SERVER_EVENT.COMMENT_CREATED, onRealtimeChange);
+      socket.off(SERVER_EVENT.COMMENT_UPDATED, onRealtimeChange);
+      socket.off(SERVER_EVENT.COMMENT_DELETED, onRealtimeChange);
+      socket.off(SERVER_EVENT.COMMENT_REACTION, onRealtimeChange);
+    };
+  }, [workspaceId, loadDashboard]);
 
   const theme: ThemeColors | null = workspace
     ? {
@@ -312,6 +380,27 @@ function WorkspaceDashboardContent() {
               )}
             </section>
           </div>
+
+          <section className="rounded-[12px] border border-bb-border/80 bg-bb-surface p-4 shadow-bb">
+            <div className="mb-2 flex items-center gap-2">
+              <Clock3
+                className="h-4 w-4 text-bb-blue"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <h2 className="font-bold text-bb-ink">Live activity stream</h2>
+            </div>
+            <p className="mb-2 px-2 text-xs text-bb-muted">
+              Auto-refreshes when tasks and comments change in this workspace.
+            </p>
+            <ActivityFeed
+              workspaceId={workspaceId}
+              mode="timeline"
+              limit={12}
+              showAbsoluteTime
+              refreshToken={activityRefreshToken}
+            />
+          </section>
         </div>
       ) : (
         <div className="rounded-[12px] border border-dashed border-bb-border bg-bb-sky/40 px-6 py-12 text-center">

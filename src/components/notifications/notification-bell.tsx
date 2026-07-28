@@ -9,6 +9,11 @@ import {
   markNotificationRead,
   type AppNotification,
 } from "@/lib/notifications";
+import {
+  SERVER_EVENT,
+  type NotificationNewPayload,
+} from "@/lib/realtime/events";
+import { connectRealtime } from "@/lib/realtime/socket-client";
 import { toastFromError } from "@/lib/toast";
 
 function relativeTime(iso: string) {
@@ -21,6 +26,25 @@ function relativeTime(iso: string) {
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
   return new Date(iso).toLocaleDateString();
+}
+
+function toAppNotification(
+  payload: NotificationNewPayload["notification"],
+): AppNotification {
+  return {
+    id: payload.id,
+    workspaceId: payload.workspaceId,
+    title: payload.title,
+    message: payload.message,
+    isRead: payload.isRead,
+    readAt: payload.readAt,
+    notificationType: payload.notificationType,
+    entityType: payload.entityType,
+    entityId: payload.entityId,
+    createdAt: payload.createdAt,
+    metadata: (payload.metadata as Record<string, unknown> | null) ?? null,
+    sender: payload.sender,
+  };
 }
 
 type Props = {
@@ -76,7 +100,8 @@ export function NotificationBell({ variant = "default" }: Props) {
 
   useEffect(() => {
     void refreshUnread();
-    const id = window.setInterval(() => void refreshUnread(), 30000);
+    // Fallback poll — live updates come from socket notification:new
+    const id = window.setInterval(() => void refreshUnread(), 60_000);
     return () => window.clearInterval(id);
   }, [refreshUnread]);
 
@@ -84,6 +109,22 @@ export function NotificationBell({ variant = "default" }: Props) {
     if (!open) return;
     void loadList();
   }, [open, loadList]);
+
+  useEffect(() => {
+    const socket = connectRealtime();
+    const onNotificationNew = (payload: NotificationNewPayload) => {
+      const next = toAppNotification(payload.notification);
+      setUnread((count) => count + (next.isRead ? 0 : 1));
+      setItems((prev) => {
+        if (prev.some((item) => item.id === next.id)) return prev;
+        return [next, ...prev].slice(0, 15);
+      });
+    };
+    socket.on(SERVER_EVENT.NOTIFICATION_NEW, onNotificationNew);
+    return () => {
+      socket.off(SERVER_EVENT.NOTIFICATION_NEW, onNotificationNew);
+    };
+  }, []);
 
   async function onMarkOne(n: AppNotification) {
     if (!n.isRead) {
