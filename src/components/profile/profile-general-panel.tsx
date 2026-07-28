@@ -2,6 +2,7 @@
 
 import { Camera } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { GoogleOAuthButton } from "@/components/google-oauth-button";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -123,6 +124,18 @@ export function ProfileGeneralPanel() {
         <p className="mt-2 text-xs text-bb-muted">
           {uploading ? "Uploading…" : "Click the avatar to upload a photo"}
         </p>
+        {!user?.googleLinked ? (
+          <div className="mt-4 w-full max-w-xs">
+            <GoogleOAuthButton mode="link" disabled={uploading || saving} />
+            <p className="mt-2 text-xs text-bb-muted">
+              Connect Google to sync your profile photo automatically on sign-in.
+            </p>
+          </div>
+        ) : (
+          <p className="mt-3 text-xs font-medium text-bb-blue">
+            Google account connected — avatar syncs on sign-in.
+          </p>
+        )}
       </div>
 
       <Field label="Full name">

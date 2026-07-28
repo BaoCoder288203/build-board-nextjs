@@ -1,9 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
-import type { CommentAuthor } from "@/lib/comments";
-
-type MentionUser = CommentAuthor["user"];
+import {
+  parseMentionTokens,
+  type MentionMember,
+  type MentionUser,
+} from "@/lib/mentions";
+import { useAuthStore } from "@/stores/auth-store";
 
 type Props = {
   label: string;
@@ -21,7 +25,8 @@ function initials(name: string) {
 
 export function MentionHoverChip({ label, user }: Props) {
   const tipId = useId();
-  const wrapRef = useRef<HTMLSpanElement>(null);
+  const currentUserId = useAuthStore((s) => s.user?.id);
+  const isSelf = currentUserId === user.id;
   const [open, setOpen] = useState(false);
   const closeTimer = useRef<number | null>(null);
 
@@ -57,7 +62,6 @@ export function MentionHoverChip({ label, user }: Props) {
 
   return (
     <span
-      ref={wrapRef}
       className="relative inline-block"
       onMouseEnter={show}
       onMouseLeave={hideSoon}
@@ -66,7 +70,7 @@ export function MentionHoverChip({ label, user }: Props) {
     >
       <button
         type="button"
-        className="rounded px-0.5 font-semibold text-bb-blue underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-bb-blue"
+        className="rounded bg-bb-sky/60 px-0.5 font-semibold text-bb-blue underline-offset-2 hover:bg-bb-sky hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-bb-blue"
         aria-describedby={open ? tipId : undefined}
       >
         {label}
@@ -99,13 +103,24 @@ export function MentionHoverChip({ label, user }: Props) {
               <span className="block truncate text-sm font-bold text-bb-ink">
                 {user.fullName}
               </span>
-              <span className="mt-0.5 block truncate text-xs font-semibold text-bb-blue">
-                @{user.username}
-              </span>
+              {user.username ? (
+                <span className="mt-0.5 block truncate text-xs font-semibold text-bb-blue">
+                  @{user.username}
+                </span>
+              ) : null}
               {user.email ? (
                 <span className="mt-1 block truncate text-[11px] text-bb-muted">
                   {user.email}
                 </span>
+              ) : null}
+              {isSelf ? (
+                <Link
+                  href="/profile"
+                  className="mt-2 inline-block text-[11px] font-semibold text-bb-blue hover:underline"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  View your profile
+                </Link>
               ) : null}
             </span>
           </span>
@@ -115,38 +130,54 @@ export function MentionHoverChip({ label, user }: Props) {
   );
 }
 
-type MentionSource = {
-  user: MentionUser;
-};
+type MentionSource = MentionMember;
 
 /** Split comment text and wrap known @mentions with hover chips. */
 export function renderCommentContent(
   content: string,
   sources: MentionSource[],
 ) {
-  const byUsername = new Map<string, MentionUser>();
-  const byFullName = new Map<string, MentionUser>();
-  for (const s of sources) {
-    if (s.user.username) {
-      byUsername.set(s.user.username.toLowerCase(), s.user);
-    }
-    byFullName.set(s.user.fullName.toLowerCase(), s.user);
+  if (!content) return null;
+
+  const tokens = parseMentionTokens(content, sources);
+  if (!tokens.length) {
+    return <span>{content}</span>;
   }
 
-  const parts = content.split(/(@[\w.-]+)/g);
-  return parts.map((part, i) => {
-    if (!part.startsWith("@") || part.length < 2) {
-      return <span key={i}>{part}</span>;
-    }
-    const token = part.slice(1).toLowerCase();
-    const user = byUsername.get(token) ?? byFullName.get(token);
-    if (!user) {
-      return (
-        <span key={i} className="font-semibold text-bb-blue/70">
-          {part}
-        </span>
+  const nodes: React.ReactNode[] = [];
+  let cursor = 0;
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]!;
+    if (token.start > cursor) {
+      nodes.push(
+        <span key={`text-${cursor}`}>{content.slice(cursor, token.start)}</span>,
       );
     }
-    return <MentionHoverChip key={i} label={part} user={user} />;
-  });
+    if (token.user) {
+      nodes.push(
+        <MentionHoverChip
+          key={`mention-${token.start}`}
+          label={token.label}
+          user={token.user}
+        />,
+      );
+    } else {
+      nodes.push(
+        <span
+          key={`unknown-${token.start}`}
+          className="rounded bg-bb-sky/40 px-0.5 font-semibold text-bb-blue/70"
+        >
+          {token.label}
+        </span>,
+      );
+    }
+    cursor = token.end;
+  }
+
+  if (cursor < content.length) {
+    nodes.push(<span key={`tail-${cursor}`}>{content.slice(cursor)}</span>);
+  }
+
+  return nodes;
 }

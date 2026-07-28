@@ -3,6 +3,26 @@
 import { api } from "@/lib/api";
 import type { AuthUser } from "@/stores/auth-store";
 
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
+
+export type AuthProviders = {
+  google: boolean;
+};
+
+export async function getAuthProviders() {
+  const { data } = await api.get("/auth/providers");
+  return data.data as AuthProviders;
+}
+
+export function getGoogleLoginUrl() {
+  return `${API_URL}/auth/google`;
+}
+
+export function getGoogleLinkUrl() {
+  return `${API_URL}/auth/google/link`;
+}
+
 export async function changePassword(input: {
   currentPassword: string;
   newPassword: string;

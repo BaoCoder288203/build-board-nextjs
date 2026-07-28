@@ -9,6 +9,7 @@ import {
   Paperclip,
   Pin,
   Plus,
+  Share2,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -24,6 +25,7 @@ import {
 import { SwitchBoardsBar } from "@/components/board/switch-boards-bar";
 import { TaskDetailModal } from "@/components/board/task-detail-modal";
 import { BoardActivityButton } from "@/components/activity/board-activity-button";
+import { BoardShareModal } from "@/components/board/board-share-modal";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { AppShell } from "@/components/app-shell";
 import { buttonClassName } from "@/components/ui/button";
@@ -107,6 +109,7 @@ function BoardViewContent() {
   const [editingName, setEditingName] = useState("");
   const [focusAddCardFor, setFocusAddCardFor] = useState<string | null>(null);
   const [switchingBoard, setSwitchingBoard] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const addCardRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const dragRef = useRef<DragState | null>(null);
   const canvasRef = useRef<BoardCanvasHandle>(null);
@@ -564,11 +567,26 @@ function BoardViewContent() {
         </div>
         <div className="flex items-center gap-2">
           {board.project?.workspaceId ? (
-            <BoardActivityButton
-              workspaceId={board.project.workspaceId}
-              boardId={boardId}
-              projectId={board.projectId}
-            />
+            <>
+              <button
+                type="button"
+                aria-label="Share board"
+                title="Share"
+                onClick={() => setShareOpen(true)}
+                className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border transition ${
+                  shareOpen
+                    ? "border-bb-blue bg-bb-sky text-bb-blue"
+                    : "border-bb-border bg-white text-bb-ink hover:bg-bb-sky"
+                }`}
+              >
+                <Share2 className="h-4 w-4" strokeWidth={2} aria-hidden />
+              </button>
+              <BoardActivityButton
+                workspaceId={board.project.workspaceId}
+                boardId={boardId}
+                projectId={board.projectId}
+              />
+            </>
           ) : null}
           <NotificationBell />
           <UserAvatarMenu />
@@ -840,6 +858,15 @@ function BoardViewContent() {
               };
             });
           }}
+        />
+      ) : null}
+      {board.project?.workspaceId ? (
+        <BoardShareModal
+          open={shareOpen}
+          onClose={() => setShareOpen(false)}
+          boardId={boardId}
+          boardName={board.name}
+          workspaceId={board.project.workspaceId}
         />
       ) : null}
     </div>
