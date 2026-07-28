@@ -156,3 +156,45 @@ body {
     transform: none;
   }
 }
+
+/* TipTap comment editor */
+.prose-comment p {
+  margin: 0;
+}
+
+.prose-comment p + p {
+  margin-top: 0.5rem;
+}
+
+.prose-comment ul,
+.prose-comment ol {
+  margin: 0.25rem 0;
+  padding-left: 1.25rem;
+}
+
+.prose-comment ul {
+  list-style-type: disc;
+}
+
+.prose-comment ol {
+  list-style-type: decimal;
+}
+
+.prose-comment li p {
+  margin: 0;
+}
+
+.prose-comment a {
+  color: var(--bb-blue);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.prose-comment p.is-editor-empty:first-child::before {
+  color: var(--bb-muted);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}

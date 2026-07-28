@@ -12,6 +12,7 @@ export type AuthUser = {
   avatar: string | null;
   isVerified: boolean;
   isActive: boolean;
+  googleLinked?: boolean;
 };
 
 type AuthState = {

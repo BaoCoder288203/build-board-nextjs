@@ -2,7 +2,11 @@
 
 import { MessageSquare, Pencil, SmilePlus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { renderCommentContent } from "@/components/board/mention-hover-chip";
+import { CommentRichContent } from "@/components/board/comment-rich-content";
+import {
+  RichCommentEditor,
+  type RichCommentEditorHandle,
+} from "@/components/board/rich-comment-editor";
 import { Button } from "@/components/ui/button";
 import {
   COMMENT_REACTION_EMOJIS,
@@ -15,6 +19,10 @@ import {
   updateComment,
   type TaskComment,
 } from "@/lib/comments";
+import {
+  extractMentionUserIdsFromComment,
+  isCommentContentEmpty,
+} from "@/lib/comment-content";
 import { confirm } from "@/lib/confirm";
 import { toastFromError, toastSuccess } from "@/lib/toast";
 import { fetchMembers, type WorkspaceMember } from "@/lib/workspaces";
@@ -61,10 +69,10 @@ export function TaskCommentPanel({
   const [editDraft, setEditDraft] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
-  const [mentionOpen, setMentionOpen] = useState(false);
   const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(
     null,
   );
+  const draftRef = useRef<RichCommentEditorHandle>(null);
   const onCountChangeRef = useRef(onCountChange);
   onCountChangeRef.current = onCountChange;
 
@@ -118,34 +126,18 @@ export function TaskCommentPanel({
     };
   }, [reactionPickerFor]);
 
-  function extractMentions(text: string) {
-    if (!members.length) return [] as string[];
-    const ids = new Set<string>();
-    for (const m of members) {
-      const uname = m.user.username?.toLowerCase();
-      const name = m.user.fullName.toLowerCase();
-      if (uname && text.toLowerCase().includes(`@${uname}`)) {
-        ids.add(m.user.id);
-      } else if (text.toLowerCase().includes(`@${name}`)) {
-        ids.add(m.user.id);
-      }
-    }
-    return [...ids];
-  }
-
   async function onCreate(e: React.FormEvent) {
     e.preventDefault();
     const content = draft.trim();
-    if (!content) return;
+    if (isCommentContentEmpty(content)) return;
     setBusy("create");
     try {
       await createComment({
         taskId,
         content,
-        mentions: extractMentions(content),
+        mentions: extractMentionUserIdsFromComment(content, members),
       });
       setDraft("");
-      setMentionOpen(false);
       toastSuccess("Comment added");
       await load();
     } catch (error) {
@@ -157,12 +149,12 @@ export function TaskCommentPanel({
 
   async function onSaveEdit(commentId: string) {
     const content = editDraft.trim();
-    if (!content) return;
+    if (isCommentContentEmpty(content)) return;
     setBusy(commentId);
     try {
       await updateComment(commentId, {
         content,
-        mentions: extractMentions(content),
+        mentions: extractMentionUserIdsFromComment(content, members),
       });
       setEditingId(null);
       toastSuccess("Comment updated");
@@ -225,12 +217,12 @@ export function TaskCommentPanel({
 
   async function onReply(parentId: string) {
     const content = (replyDraft[parentId] ?? "").trim();
-    if (!content) return;
+    if (isCommentContentEmpty(content)) return;
     setBusy(`reply-${parentId}`);
     try {
       await replyToComment(parentId, {
         content,
-        mentions: extractMentions(content),
+        mentions: extractMentionUserIdsFromComment(content, members),
       });
       setReplyDraft((prev) => ({ ...prev, [parentId]: "" }));
       toastSuccess("Reply added");
@@ -272,15 +264,6 @@ export function TaskCommentPanel({
     }
   }
 
-  function insertMention(member: WorkspaceMember) {
-    const token = `@${member.user.username || member.user.fullName}`;
-    setDraft((prev) => {
-      const needsSpace = prev.length > 0 && !prev.endsWith(" ");
-      return `${prev}${needsSpace ? " " : ""}${token} `;
-    });
-    setMentionOpen(false);
-  }
-
   function renderComment(
     comment: TaskComment,
     opts?: { nested?: boolean },
@@ -312,11 +295,11 @@ export function TaskCommentPanel({
 
             {isEditing ? (
               <div className="mt-2 space-y-2">
-                <textarea
+                <RichCommentEditor
                   value={editDraft}
-                  onChange={(e) => setEditDraft(e.target.value)}
-                  rows={3}
-                  className="w-full rounded-[10px] border border-bb-border px-3 py-2 text-sm outline-none focus:border-bb-blue"
+                  onChange={setEditDraft}
+                  members={members}
+                  minHeightClass="min-h-[80px]"
                 />
                 <div className="flex gap-2">
                   <Button
@@ -338,12 +321,15 @@ export function TaskCommentPanel({
                 </div>
               </div>
             ) : (
-              <p className="mt-1 whitespace-pre-wrap text-sm text-bb-ink">
-                {renderCommentContent(comment.content, [
-                  ...comment.mentions,
-                  ...members.map((m) => ({ user: m.user })),
-                ])}
-              </p>
+              <div className="mt-1">
+                <CommentRichContent
+                  content={comment.content}
+                  sources={[
+                    ...comment.mentions,
+                    ...members.map((m) => ({ user: m.user })),
+                  ]}
+                />
+              </div>
             )}
 
             {!isEditing ? (
@@ -453,17 +439,18 @@ export function TaskCommentPanel({
                   renderComment(r, { nested: true }),
                 )}
                 <li className="ml-6 flex gap-2">
-                  <textarea
+                  <RichCommentEditor
                     value={replyDraft[comment.id] ?? ""}
-                    onChange={(e) =>
+                    onChange={(next) =>
                       setReplyDraft((prev) => ({
                         ...prev,
-                        [comment.id]: e.target.value,
+                        [comment.id]: next,
                       }))
                     }
-                    rows={2}
-                    placeholder="Write a reply..."
-                    className="min-w-0 flex-1 rounded-[10px] border border-bb-border px-3 py-2 text-sm outline-none focus:border-bb-blue"
+                    members={members}
+                    placeholder="Write a reply… Use @ to mention"
+                    minHeightClass="min-h-[56px]"
+                    className="min-w-0 flex-1"
                   />
                   <Button
                     type="button"
@@ -517,46 +504,23 @@ export function TaskCommentPanel({
       </ul>
 
       <form onSubmit={onCreate} className="space-y-2">
-        <textarea
+        <RichCommentEditor
+          ref={draftRef}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          rows={3}
-          placeholder="Write a comment… Use @username to mention"
-          className="w-full rounded-[10px] border border-bb-border px-3 py-2 text-sm outline-none focus:border-bb-blue"
-          required
+          onChange={setDraft}
+          members={members}
+          placeholder="Write a comment… Type @ to mention someone"
         />
         <div className="flex flex-wrap items-center gap-2">
           {members.length > 0 ? (
-            <div className="relative">
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={() => setMentionOpen((v) => !v)}
-              >
-                @ Mention
-              </Button>
-              {mentionOpen ? (
-                <ul className="absolute bottom-full left-0 z-10 mb-1 max-h-40 w-56 overflow-y-auto rounded-lg border border-bb-border bg-white py-1 shadow-bb">
-                  {members.map((m) => (
-                    <li key={m.id}>
-                      <button
-                        type="button"
-                        className="block w-full px-3 py-1.5 text-left text-sm hover:bg-bb-sky"
-                        onClick={() => insertMention(m)}
-                      >
-                        <span className="font-semibold text-bb-ink">
-                          {m.user.fullName}
-                        </span>
-                        <span className="ml-1 text-xs text-bb-muted">
-                          @{m.user.username}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => draftRef.current?.openMentionPicker()}
+            >
+              @ Mention
+            </Button>
           ) : null}
           <Button type="submit" size="sm" disabled={busy === "create"}>
             {busy === "create" ? "Posting..." : "Comment"}

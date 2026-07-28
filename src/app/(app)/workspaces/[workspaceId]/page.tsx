@@ -1,13 +1,13 @@
 "use client";
 
 import {
+  Archive,
   ArrowLeft,
   ChevronDown,
   History,
   LayoutDashboard,
   LogOut,
   Plus,
-  Search,
   Send,
   Settings,
   UserMinus,
@@ -15,7 +15,13 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { AppShell } from "@/components/app-shell";
 import { ProjectAvatar } from "@/components/visual/project-avatar";
 import { Alert } from "@/components/ui/alert";
@@ -45,6 +51,35 @@ import {
   prefetchWorkspacePage,
   useEntityCache,
 } from "@/stores/entity-cache";
+
+function ExpandNavLink({
+  href,
+  label,
+  children,
+}: {
+  href: string;
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-label={label}
+      title={label}
+      className={buttonClassName({
+        variant: "secondary",
+        size: "sm",
+        className:
+          "group gap-0 overflow-hidden px-2.5 transition-[gap] duration-300 ease-out hover:gap-2 focus-visible:gap-2",
+      })}
+    >
+      <span className="inline-flex shrink-0">{children}</span>
+      <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-[max-width,opacity] duration-300 ease-out group-hover:max-w-[7.5rem] group-hover:opacity-100 group-focus-visible:max-w-[7.5rem] group-focus-visible:opacity-100">
+        {label}
+      </span>
+    </Link>
+  );
+}
 
 function WorkspaceDetailContent() {
   const params = useParams<{ workspaceId: string }>();
@@ -270,36 +305,24 @@ function WorkspaceDetailContent() {
         <span className="inline-flex h-9 items-center rounded-lg bg-bb-sky px-3 text-sm font-semibold text-bb-blue">
           {workspace.myMembership?.roleName ?? "Member"}
         </span>
-        <Link
+        <ExpandNavLink
           href={`/workspaces/${workspaceId}/dashboard`}
-          className={buttonClassName({
-            variant: "secondary",
-            size: "sm",
-          })}
+          label="Dashboard"
         >
           <LayoutDashboard className="h-4 w-4" strokeWidth={2} aria-hidden />
-          Dashboard
-        </Link>
-        <Link
-          href={`/workspaces/${workspaceId}/search`}
-          className={buttonClassName({
-            variant: "secondary",
-            size: "sm",
-          })}
+        </ExpandNavLink>
+        <ExpandNavLink
+          href={`/workspaces/${workspaceId}/archived`}
+          label="Archived"
         >
-          <Search className="h-4 w-4" strokeWidth={2} aria-hidden />
-          Search
-        </Link>
-        <Link
+          <Archive className="h-4 w-4" strokeWidth={2} aria-hidden />
+        </ExpandNavLink>
+        <ExpandNavLink
           href={`/workspaces/${workspaceId}/activity`}
-          className={buttonClassName({
-            variant: "secondary",
-            size: "sm",
-          })}
+          label="Activity"
         >
           <History className="h-4 w-4" strokeWidth={2} aria-hidden />
-          Activity
-        </Link>
+        </ExpandNavLink>
         {!workspace.myMembership?.isOwner ? (
           <Button
             variant="danger"
@@ -313,18 +336,12 @@ function WorkspaceDetailContent() {
           </Button>
         ) : null}
         {canSettings ? (
-          <Link
+          <ExpandNavLink
             href={`/workspaces/${workspaceId}/settings`}
-            className={buttonClassName({
-              variant: "secondary",
-              size: "sm",
-              className: "px-2.5",
-            })}
-            aria-label="Workspace settings"
-            title="Workspace settings"
+            label="Settings"
           >
             <Settings className="h-4 w-4" strokeWidth={2} aria-hidden />
-          </Link>
+          </ExpandNavLink>
         ) : null}
       </div>
 

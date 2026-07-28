@@ -1,21 +1,36 @@
 "use client";
 
-import { Bell, KeyRound, LogOut, User } from "lucide-react";
+import { Archive, Bell, KeyRound, LogOut, User } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { useAuthStore } from "@/stores/auth-store";
+import { useEntityCache } from "@/stores/entity-cache";
 
 type Props = {
   variant?: "default" | "onDark";
 };
 
+function workspaceIdFromPath(pathname: string): string | undefined {
+  const m = pathname.match(/^\/workspaces\/([^/]+)/);
+  return m?.[1];
+}
+
 export function UserAvatarMenu({ variant = "default" }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const workspaceList = useEntityCache((s) => s.workspaceList);
   const [open, setOpen] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const pathWorkspaceId = workspaceIdFromPath(pathname);
+  const archivedHref = pathWorkspaceId
+    ? `/workspaces/${pathWorkspaceId}/archived`
+    : workspaceList?.[0]
+      ? `/workspaces/${workspaceList[0].id}/archived`
+      : null;
 
   function clearCloseTimer() {
     if (closeTimer.current) {
@@ -115,7 +130,7 @@ export function UserAvatarMenu({ variant = "default" }: Props) {
             className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-semibold text-bb-ink transition hover:bg-bb-sky"
           >
             <User className="h-4 w-4" strokeWidth={2} aria-hidden />
-            Profile
+            Manage account
           </Link>
           <Link
             href="/profile?tab=security"
@@ -135,6 +150,17 @@ export function UserAvatarMenu({ variant = "default" }: Props) {
             <Bell className="h-4 w-4" strokeWidth={2} aria-hidden />
             Notifications
           </Link>
+          {archivedHref ? (
+            <Link
+              href={archivedHref}
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-semibold text-bb-ink transition hover:bg-bb-sky"
+            >
+              <Archive className="h-4 w-4" strokeWidth={2} aria-hidden />
+              Archived items
+            </Link>
+          ) : null}
           <button
             type="button"
             role="menuitem"

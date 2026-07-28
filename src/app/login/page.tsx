@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { LogIn } from "lucide-react";
 import { AuthShell, Field } from "@/components/auth-shell";
+import { GoogleOAuthButton } from "@/components/google-oauth-button";
 import { GuestOnly } from "@/components/guest-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,6 +65,9 @@ export default function LoginPage() {
           )}
         </Button>
       </form>
+      <div className="mt-4">
+        <GoogleOAuthButton mode="login" disabled={loading} />
+      </div>
       <div className="mt-6 space-y-2 text-center text-sm text-bb-muted">
         <p>
           <Link
