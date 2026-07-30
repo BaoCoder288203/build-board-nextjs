@@ -6,6 +6,8 @@ import {
   CLIENT_EVENT,
   SERVER_EVENT,
   type MeetingMediaStatePayload,
+  type MeetingMediaSyncPayload,
+  type MeetingModerationPayload,
   type MeetingParticipant,
   type MeetingSignalAnswerPayload,
   type MeetingSignalIcePayload,
@@ -21,6 +23,7 @@ export type RemotePeer = {
   audioEnabled: boolean;
   videoEnabled: boolean;
   screenSharing: boolean;
+  screenStreamId: string | null;
 };
 
 type UseMeetingWebRtcInput = {
@@ -31,6 +34,14 @@ type UseMeetingWebRtcInput = {
 };
 
 type IceServerConfig = RTCIceServer[];
+
+type PeerSession = {
+  pc: RTCPeerConnection;
+  iceQueue: RTCIceCandidateInit[];
+  makingOffer: boolean;
+  polite: boolean;
+  chain: Promise<void>;
+};
 
 function parseIceServers(): IceServerConfig {
   const fallback: IceServerConfig = [{ urls: "stun:stun.l.google.com:19302" }];
@@ -67,33 +78,54 @@ export function useMeetingWebRtc({
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [screenSharing, setScreenSharing] = useState(false);
 
-  const pcsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const sessionsRef = useRef<Map<string, PeerSession>>(new Map());
   const remoteStreamRef = useRef<Map<string, MediaStream>>(new Map());
   const remoteScreenStreamRef = useRef<Map<string, MediaStream>>(new Map());
+  const remoteScreenIdRef = useRef<Map<string, string | null>>(new Map());
+  const remoteSharingRef = useRef<Map<string, boolean>>(new Map());
   const localRef = useRef<MediaStream | null>(null);
   const localScreenRef = useRef<MediaStream | null>(null);
   const cameraTrackRef = useRef<MediaStreamTrack | null>(null);
   const screenTrackRef = useRef<MediaStreamTrack | null>(null);
-  const screenSenderIdsRef = useRef<Map<string, RTCRtpSender>>(new Map());
+  const screenSenderRef = useRef<Map<string, RTCRtpSender>>(new Map());
   const audioEnabledRef = useRef(true);
   const videoEnabledRef = useRef(true);
   const screenSharingRef = useRef(false);
+  const meIdRef = useRef(meId);
+  const meetingIdRef = useRef(meetingId);
+  const opChainRef = useRef<Promise<void>>(Promise.resolve());
+
+  meIdRef.current = meId;
+  meetingIdRef.current = meetingId;
 
   const activeParticipants = useMemo(
     () => participants.filter((p) => p.leftAt == null),
     [participants],
   );
 
+  const runSerialized = useCallback(<T,>(fn: () => Promise<T>): Promise<T> => {
+    const next = opChainRef.current.then(fn, fn);
+    opChainRef.current = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }, []);
+
   const emitMediaSnapshot = useCallback(() => {
-    if (!meetingId) return;
+    const id = meetingIdRef.current;
+    if (!id) return;
     const socket = connectRealtime();
     socket.emit(CLIENT_EVENT.MEETING_MEDIA_STATE, {
-      meetingId,
+      meetingId: id,
       audioEnabled: audioEnabledRef.current,
       videoEnabled: videoEnabledRef.current,
       screenSharing: screenSharingRef.current,
+      screenStreamId: screenSharingRef.current
+        ? (localScreenRef.current?.id ?? null)
+        : null,
     });
-  }, [meetingId]);
+  }, []);
 
   const upsertRemotePeer = useCallback(
     (
@@ -117,12 +149,16 @@ export function useMeetingWebRtc({
               remoteStreamRef.current.get(userId) ??
               new MediaStream(),
             screenStream:
-              updates.screenStream ??
-              remoteScreenStreamRef.current.get(userId) ??
-              null,
+              updates.screenStream !== undefined
+                ? updates.screenStream
+                : (remoteScreenStreamRef.current.get(userId) ?? null),
             audioEnabled: updates.audioEnabled ?? true,
             videoEnabled: updates.videoEnabled ?? true,
             screenSharing: updates.screenSharing ?? false,
+            screenStreamId:
+              updates.screenStreamId !== undefined
+                ? updates.screenStreamId
+                : (remoteScreenIdRef.current.get(userId) ?? null),
           };
           return [...prev, next];
         }
@@ -139,6 +175,10 @@ export function useMeetingWebRtc({
                 audioEnabled: updates.audioEnabled ?? peer.audioEnabled,
                 videoEnabled: updates.videoEnabled ?? peer.videoEnabled,
                 screenSharing: updates.screenSharing ?? peer.screenSharing,
+                screenStreamId:
+                  updates.screenStreamId !== undefined
+                    ? updates.screenStreamId
+                    : peer.screenStreamId,
               }
             : peer,
         );
@@ -147,18 +187,64 @@ export function useMeetingWebRtc({
     [activeParticipants],
   );
 
-  const removePeer = useCallback((userId: string) => {
-    const pc = pcsRef.current.get(userId);
-    if (pc) {
-      pc.ontrack = null;
-      pc.onicecandidate = null;
-      pc.close();
-      pcsRef.current.delete(userId);
+  const applyMediaFlags = useCallback(
+    (
+      userId: string,
+      flags: {
+        fullName?: string;
+        audioEnabled: boolean;
+        videoEnabled: boolean;
+        screenSharing: boolean;
+        screenStreamId?: string | null;
+      },
+    ) => {
+      const screenStreamId = flags.screenStreamId ?? null;
+      remoteScreenIdRef.current.set(userId, screenStreamId);
+      remoteSharingRef.current.set(userId, flags.screenSharing);
+      if (!flags.screenSharing) {
+        remoteScreenStreamRef.current.delete(userId);
+        upsertRemotePeer(userId, {
+          fullName: flags.fullName,
+          audioEnabled: flags.audioEnabled,
+          videoEnabled: flags.videoEnabled,
+          screenSharing: false,
+          screenStreamId: null,
+          screenStream: null,
+        });
+        return;
+      }
+      upsertRemotePeer(userId, {
+        fullName: flags.fullName,
+        audioEnabled: flags.audioEnabled,
+        videoEnabled: flags.videoEnabled,
+        screenSharing: true,
+        screenStreamId,
+      });
+    },
+    [upsertRemotePeer],
+  );
+
+  const flushIce = useCallback(async (session: PeerSession) => {
+    if (!session.pc.remoteDescription) return;
+    const queued = session.iceQueue.splice(0, session.iceQueue.length);
+    for (const candidate of queued) {
+      try {
+        await session.pc.addIceCandidate(candidate);
+      } catch {
+        // ignore stale candidates
+      }
     }
-    screenSenderIdsRef.current.delete(userId);
-    remoteStreamRef.current.delete(userId);
-    remoteScreenStreamRef.current.delete(userId);
-    setRemotePeers((prev) => prev.filter((peer) => peer.userId !== userId));
+  }, []);
+
+  const enqueuePeer = useCallback((userId: string, task: () => Promise<void>) => {
+    const session = sessionsRef.current.get(userId);
+    if (!session) return Promise.resolve();
+    const next = session.chain.then(task, task);
+    session.chain = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
   }, []);
 
   const ensureLocalStream = useCallback(async () => {
@@ -190,116 +276,207 @@ export function useMeetingWebRtc({
     return stream;
   }, []);
 
+  const classifyRemoteVideo = useCallback(
+    (userId: string, _track: MediaStreamTrack, inbound: MediaStream | null) => {
+      const knownScreenId = remoteScreenIdRef.current.get(userId);
+      if (knownScreenId && inbound?.id === knownScreenId) {
+        return "screen" as const;
+      }
+      const cameraStream = remoteStreamRef.current.get(userId);
+      const cameraHasVideo = Boolean(cameraStream?.getVideoTracks().length);
+      const inboundHasAudio = Boolean(inbound?.getAudioTracks().length);
+      if (inboundHasAudio) return "camera" as const;
+      if (!cameraHasVideo) return "camera" as const;
+      // Camera already present: extra video is screen when sharing or different stream
+      if (remoteSharingRef.current.get(userId)) return "screen" as const;
+      if (inbound && cameraStream && inbound.id !== cameraStream.id) {
+        return "screen" as const;
+      }
+      return "screen" as const;
+    },
+    [],
+  );
+
+  const handleRemoteTrack = useCallback(
+    (userId: string, event: RTCTrackEvent) => {
+      const track = event.track;
+      const inbound = event.streams[0] ?? null;
+
+      if (track.kind === "audio") {
+        let cameraStream = remoteStreamRef.current.get(userId);
+        if (!cameraStream) {
+          cameraStream = inbound ?? new MediaStream();
+          remoteStreamRef.current.set(userId, cameraStream);
+        }
+        if (!cameraStream.getAudioTracks().some((t) => t.id === track.id)) {
+          cameraStream.addTrack(track);
+        }
+        upsertRemotePeer(userId, { stream: cameraStream });
+        return;
+      }
+
+      if (track.kind !== "video") return;
+
+      const kind = classifyRemoteVideo(userId, track, inbound);
+      if (kind === "screen") {
+        let screenStream = remoteScreenStreamRef.current.get(userId);
+        if (!screenStream) {
+          screenStream = inbound ? new MediaStream([track]) : new MediaStream([track]);
+          // Prefer keeping inbound identity when available for msid match
+          if (inbound) {
+            screenStream = inbound;
+            if (!inbound.getVideoTracks().some((t) => t.id === track.id)) {
+              inbound.addTrack(track);
+            }
+          }
+          remoteScreenStreamRef.current.set(userId, screenStream);
+          remoteScreenIdRef.current.set(userId, screenStream.id);
+        } else if (!screenStream.getTracks().some((t) => t.id === track.id)) {
+          screenStream.addTrack(track);
+        }
+        upsertRemotePeer(userId, {
+          screenStream,
+          screenSharing: true,
+          screenStreamId: screenStream.id,
+        });
+        track.onended = () => {
+          remoteScreenStreamRef.current.delete(userId);
+          remoteScreenIdRef.current.set(userId, null);
+          upsertRemotePeer(userId, {
+            screenStream: null,
+            screenSharing: false,
+            screenStreamId: null,
+          });
+        };
+        return;
+      }
+
+      let cameraStream = remoteStreamRef.current.get(userId);
+      if (!cameraStream) {
+        cameraStream = inbound ?? new MediaStream();
+        remoteStreamRef.current.set(userId, cameraStream);
+      }
+      if (!cameraStream.getVideoTracks().some((t) => t.id === track.id)) {
+        cameraStream.addTrack(track);
+      }
+      upsertRemotePeer(userId, { stream: cameraStream });
+
+      track.onmute = () => {
+        // Soft signal — authoritative flags still come from media:state
+      };
+    },
+    [classifyRemoteVideo, upsertRemotePeer],
+  );
+
   const attachScreenTrackToPeer = useCallback(
     async (targetUserId: string, screenTrack: MediaStreamTrack) => {
-      const pc = pcsRef.current.get(targetUserId);
-      if (!pc || !localScreenRef.current) return;
-      const existing = screenSenderIdsRef.current.get(targetUserId);
+      const session = sessionsRef.current.get(targetUserId);
+      if (!session || !localScreenRef.current) return;
+      const existing = screenSenderRef.current.get(targetUserId);
       if (existing) {
         await existing.replaceTrack(screenTrack);
         return;
       }
-      const sender = pc.addTrack(screenTrack, localScreenRef.current);
-      screenSenderIdsRef.current.set(targetUserId, sender);
+      const sender = session.pc.addTrack(screenTrack, localScreenRef.current);
+      screenSenderRef.current.set(targetUserId, sender);
     },
     [],
   );
 
   const detachScreenTrackFromPeer = useCallback((targetUserId: string) => {
-    const pc = pcsRef.current.get(targetUserId);
-    const sender = screenSenderIdsRef.current.get(targetUserId);
-    if (pc && sender) {
+    const session = sessionsRef.current.get(targetUserId);
+    const sender = screenSenderRef.current.get(targetUserId);
+    if (session && sender) {
       try {
-        pc.removeTrack(sender);
+        session.pc.removeTrack(sender);
       } catch {
         // ignore
       }
     }
-    screenSenderIdsRef.current.delete(targetUserId);
+    screenSenderRef.current.delete(targetUserId);
   }, []);
 
-  const createPeerConnection = useCallback(
+  const createOfferFor = useCallback(
     async (targetUserId: string) => {
-      const existing = pcsRef.current.get(targetUserId);
+      const session = sessionsRef.current.get(targetUserId);
+      const id = meetingIdRef.current;
+      if (!session || !id) return;
+      if (session.pc.signalingState !== "stable") return;
+      try {
+        session.makingOffer = true;
+        const offer = await session.pc.createOffer();
+        if (session.pc.signalingState !== "stable") return;
+        await session.pc.setLocalDescription(offer);
+        if (!offer.sdp) return;
+        const socket = connectRealtime();
+        socket.emit(CLIENT_EVENT.MEETING_SIGNAL_OFFER, {
+          meetingId: id,
+          toUserId: targetUserId,
+          sdp: offer.sdp,
+        });
+      } finally {
+        session.makingOffer = false;
+      }
+    },
+    [],
+  );
+
+  const recoverPeer = useCallback(
+    async (targetUserId: string) => {
+      await enqueuePeer(targetUserId, async () => {
+        const session = sessionsRef.current.get(targetUserId);
+        const self = meIdRef.current;
+        if (!session || !self) return;
+        try {
+          session.pc.restartIce();
+        } catch {
+          // ignore
+        }
+        if (self.localeCompare(targetUserId) < 0) {
+          await createOfferFor(targetUserId);
+        }
+      });
+    },
+    [createOfferFor, enqueuePeer],
+  );
+
+  const ensurePeerSession = useCallback(
+    async (targetUserId: string) => {
+      const existing = sessionsRef.current.get(targetUserId);
       if (existing) return existing;
 
+      const selfId = meIdRef.current;
+      if (!selfId) throw new Error("Missing local user id");
+
       const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-      pcsRef.current.set(targetUserId, pc);
+      const session: PeerSession = {
+        pc,
+        iceQueue: [],
+        makingOffer: false,
+        polite: selfId.localeCompare(targetUserId) > 0,
+        chain: Promise.resolve(),
+      };
+      sessionsRef.current.set(targetUserId, session);
 
       const local = await ensureLocalStream();
       for (const track of local.getTracks()) {
         pc.addTrack(track, local);
       }
-
       if (screenTrackRef.current && localScreenRef.current) {
         const sender = pc.addTrack(screenTrackRef.current, localScreenRef.current);
-        screenSenderIdsRef.current.set(targetUserId, sender);
+        screenSenderRef.current.set(targetUserId, sender);
       }
 
       pc.ontrack = (event) => {
-        const track = event.track;
-        const inbound = event.streams[0] ?? null;
-        const cameraStream = remoteStreamRef.current.get(targetUserId);
-        const cameraHasVideo = Boolean(cameraStream?.getVideoTracks().length);
-        const differentFromCamera =
-          Boolean(cameraStream && inbound && inbound.id !== cameraStream.id);
-        // Screen share is a second video track (often its own stream). contentHint
-        // may not survive the wire, so prefer stream/id heuristics.
-        const isScreenVideo =
-          track.kind === "video" &&
-          Boolean(cameraStream) &&
-          (differentFromCamera ||
-            cameraHasVideo ||
-            track.contentHint === "detail");
-
-        if (isScreenVideo) {
-          let screenStream = remoteScreenStreamRef.current.get(targetUserId);
-          if (!screenStream) {
-            screenStream = inbound ? new MediaStream(inbound.getTracks()) : new MediaStream();
-            remoteScreenStreamRef.current.set(targetUserId, screenStream);
-          }
-          if (!screenStream.getTracks().some((t) => t.id === track.id)) {
-            screenStream.addTrack(track);
-          }
-          upsertRemotePeer(targetUserId, {
-            screenStream,
-            screenSharing: true,
-          });
-          track.onended = () => {
-            remoteScreenStreamRef.current.delete(targetUserId);
-            upsertRemotePeer(targetUserId, {
-              screenStream: null,
-              screenSharing: false,
-            });
-          };
-          return;
-        }
-
-        let nextCamera = cameraStream;
-        if (!nextCamera) {
-          nextCamera = inbound ?? new MediaStream();
-          remoteStreamRef.current.set(targetUserId, nextCamera);
-        }
-        if (
-          track.kind === "video" &&
-          !nextCamera.getVideoTracks().some((t) => t.id === track.id)
-        ) {
-          nextCamera.addTrack(track);
-        }
-        if (
-          track.kind === "audio" &&
-          !nextCamera.getAudioTracks().some((t) => t.id === track.id)
-        ) {
-          nextCamera.addTrack(track);
-        }
-        upsertRemotePeer(targetUserId, { stream: nextCamera });
+        handleRemoteTrack(targetUserId, event);
       };
 
       pc.onicecandidate = (event) => {
-        if (!event.candidate || !meetingId) return;
+        const id = meetingIdRef.current;
+        if (!event.candidate || !id) return;
         const socket = connectRealtime();
         socket.emit(CLIENT_EVENT.MEETING_SIGNAL_ICE, {
-          meetingId,
+          meetingId: id,
           toUserId: targetUserId,
           candidate: event.candidate.candidate,
           sdpMid: event.candidate.sdpMid ?? null,
@@ -307,40 +484,42 @@ export function useMeetingWebRtc({
         });
       };
 
-      return pc;
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === "failed") {
+          void recoverPeer(targetUserId);
+        }
+      };
+
+      return session;
     },
-    [ensureLocalStream, meetingId, upsertRemotePeer],
+    [ensureLocalStream, handleRemoteTrack, recoverPeer],
   );
 
-  const createOfferFor = useCallback(
-    async (targetUserId: string) => {
-      const pc = await createPeerConnection(targetUserId);
-      if (pc.signalingState !== "stable") return;
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      if (!meetingId || !offer.sdp) return;
-      const socket = connectRealtime();
-      socket.emit(CLIENT_EVENT.MEETING_SIGNAL_OFFER, {
-        meetingId,
-        toUserId: targetUserId,
-        sdp: offer.sdp,
-      });
-    },
-    [createPeerConnection, meetingId],
-  );
+  const removePeer = useCallback((userId: string) => {
+    const session = sessionsRef.current.get(userId);
+    if (session) {
+      session.pc.ontrack = null;
+      session.pc.onicecandidate = null;
+      session.pc.onconnectionstatechange = null;
+      session.pc.close();
+      sessionsRef.current.delete(userId);
+    }
+    screenSenderRef.current.delete(userId);
+    remoteStreamRef.current.delete(userId);
+    remoteScreenStreamRef.current.delete(userId);
+    remoteScreenIdRef.current.delete(userId);
+    remoteSharingRef.current.delete(userId);
+    setRemotePeers((prev) => prev.filter((peer) => peer.userId !== userId));
+  }, []);
 
   const renegotiateAll = useCallback(async () => {
-    const peerIds = [...pcsRef.current.keys()];
-    await Promise.all(
-      peerIds.map(async (peerId) => {
-        try {
-          await createOfferFor(peerId);
-        } catch {
-          // ignore per-peer failures
-        }
-      }),
-    );
-  }, [createOfferFor]);
+    const peerIds = [...sessionsRef.current.keys()];
+    for (const peerId of peerIds) {
+      await enqueuePeer(peerId, async () => {
+        await createOfferFor(peerId);
+      });
+    }
+  }, [createOfferFor, enqueuePeer]);
 
   const toggleAudio = useCallback(() => {
     const local = localRef.current;
@@ -365,54 +544,105 @@ export function useMeetingWebRtc({
     emitMediaSnapshot();
   }, [emitMediaSnapshot]);
 
+  const applyForcedMedia = useCallback(
+    (opts: { audioEnabled?: boolean; videoEnabled?: boolean }) => {
+      if (opts.audioEnabled !== undefined) {
+        const local = localRef.current;
+        if (local) {
+          for (const track of local.getAudioTracks()) {
+            track.enabled = opts.audioEnabled;
+          }
+        }
+        audioEnabledRef.current = opts.audioEnabled;
+        setAudioEnabled(opts.audioEnabled);
+      }
+      if (opts.videoEnabled !== undefined) {
+        const cameraTrack = cameraTrackRef.current;
+        if (cameraTrack && cameraTrack.readyState !== "ended") {
+          cameraTrack.enabled = opts.videoEnabled;
+        }
+        videoEnabledRef.current = opts.videoEnabled;
+        setVideoEnabled(opts.videoEnabled);
+      }
+      emitMediaSnapshot();
+    },
+    [emitMediaSnapshot],
+  );
+
+  const requestForceMute = useCallback(
+    (targetUserId: string, opts: { audioEnabled?: boolean; videoEnabled?: boolean }) => {
+      const id = meetingIdRef.current;
+      if (!id) return;
+      const socket = connectRealtime();
+      socket.emit(CLIENT_EVENT.MEETING_MODERATION, {
+        meetingId: id,
+        targetUserId,
+        ...opts,
+      });
+    },
+    [],
+  );
+
   const stopScreenShare = useCallback(async () => {
-    const screenTrack = screenTrackRef.current;
-    if (!screenTrack) return;
+    await runSerialized(async () => {
+      const screenTrack = screenTrackRef.current;
+      if (!screenTrack) return;
 
-    for (const userId of [...pcsRef.current.keys()]) {
-      detachScreenTrackFromPeer(userId);
-    }
+      for (const userId of [...sessionsRef.current.keys()]) {
+        detachScreenTrackFromPeer(userId);
+      }
 
-    screenTrack.stop();
-    screenTrackRef.current = null;
-    localScreenRef.current = null;
-    setLocalScreenStream(null);
-    screenSharingRef.current = false;
-    setScreenSharing(false);
-    emitMediaSnapshot();
-    await renegotiateAll();
-  }, [detachScreenTrackFromPeer, emitMediaSnapshot, renegotiateAll]);
+      screenTrack.stop();
+      screenTrackRef.current = null;
+      localScreenRef.current = null;
+      setLocalScreenStream(null);
+      screenSharingRef.current = false;
+      setScreenSharing(false);
+      emitMediaSnapshot();
+      await renegotiateAll();
+    });
+  }, [
+    detachScreenTrackFromPeer,
+    emitMediaSnapshot,
+    renegotiateAll,
+    runSerialized,
+  ]);
 
   const startScreenShare = useCallback(async () => {
-    if (screenSharingRef.current) return;
-    const display = await navigator.mediaDevices.getDisplayMedia({
-      video: true,
-      audio: false,
+    await runSerialized(async () => {
+      if (screenSharingRef.current) return;
+      const display = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: false,
+      });
+      const [track] = display.getVideoTracks();
+      if (!track) return;
+      track.contentHint = "detail";
+      screenTrackRef.current = track;
+      const screenStream = new MediaStream([track]);
+      localScreenRef.current = screenStream;
+      setLocalScreenStream(screenStream);
+
+      screenSharingRef.current = true;
+      setScreenSharing(true);
+      // Announce screenStreamId before renegotiation so remotes can classify tracks
+      emitMediaSnapshot();
+
+      for (const userId of [...sessionsRef.current.keys()]) {
+        await attachScreenTrackToPeer(userId, track);
+      }
+
+      track.onended = () => {
+        void stopScreenShare();
+      };
+
+      await renegotiateAll();
     });
-    const [track] = display.getVideoTracks();
-    if (!track) return;
-    track.contentHint = "detail";
-    screenTrackRef.current = track;
-    const screenStream = new MediaStream([track]);
-    localScreenRef.current = screenStream;
-    setLocalScreenStream(screenStream);
-
-    for (const userId of [...pcsRef.current.keys()]) {
-      await attachScreenTrackToPeer(userId, track);
-    }
-
-    track.onended = () => {
-      void stopScreenShare();
-    };
-
-    screenSharingRef.current = true;
-    setScreenSharing(true);
-    emitMediaSnapshot();
-    await renegotiateAll();
   }, [
     attachScreenTrackToPeer,
     emitMediaSnapshot,
     renegotiateAll,
+    runSerialized,
     stopScreenShare,
   ]);
 
@@ -425,85 +655,132 @@ export function useMeetingWebRtc({
         toastFromError(error, "Cannot access camera/microphone");
       });
 
-    const onOffer = async (payload: MeetingSignalOfferPayload) => {
+    const onOffer = (payload: MeetingSignalOfferPayload) => {
       if (payload.toUserId !== meId || payload.meetingId !== meetingId) return;
-      const pc = await createPeerConnection(payload.fromUserId);
-      if (pc.signalingState !== "stable") {
-        try {
-          await pc.setLocalDescription({ type: "rollback" });
-        } catch {
-          // ignore rollback failures
+      void enqueuePeer(payload.fromUserId, async () => {
+        const session = await ensurePeerSession(payload.fromUserId);
+        const offerCollision =
+          session.makingOffer || session.pc.signalingState !== "stable";
+        if (offerCollision) {
+          if (!session.polite) return;
+          try {
+            await session.pc.setLocalDescription({ type: "rollback" });
+          } catch {
+            // ignore
+          }
         }
-      }
-      await pc.setRemoteDescription({
-        type: "offer",
-        sdp: payload.sdp,
-      });
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      if (!answer.sdp) return;
-      socket.emit(CLIENT_EVENT.MEETING_SIGNAL_ANSWER, {
-        meetingId,
-        toUserId: payload.fromUserId,
-        sdp: answer.sdp,
-      });
-    };
-
-    const onAnswer = async (payload: MeetingSignalAnswerPayload) => {
-      if (payload.toUserId !== meId || payload.meetingId !== meetingId) return;
-      const pc = pcsRef.current.get(payload.fromUserId);
-      if (!pc) return;
-      await pc.setRemoteDescription({
-        type: "answer",
-        sdp: payload.sdp,
+        await session.pc.setRemoteDescription({
+          type: "offer",
+          sdp: payload.sdp,
+        });
+        await flushIce(session);
+        const answer = await session.pc.createAnswer();
+        await session.pc.setLocalDescription(answer);
+        if (!answer.sdp) return;
+        socket.emit(CLIENT_EVENT.MEETING_SIGNAL_ANSWER, {
+          meetingId,
+          toUserId: payload.fromUserId,
+          sdp: answer.sdp,
+        });
       });
     };
 
-    const onIce = async (payload: MeetingSignalIcePayload) => {
+    const onAnswer = (payload: MeetingSignalAnswerPayload) => {
       if (payload.toUserId !== meId || payload.meetingId !== meetingId) return;
-      const pc = await createPeerConnection(payload.fromUserId);
-      await pc.addIceCandidate(
-        new RTCIceCandidate({
+      void enqueuePeer(payload.fromUserId, async () => {
+        const session = sessionsRef.current.get(payload.fromUserId);
+        if (!session) return;
+        if (session.pc.signalingState !== "have-local-offer") return;
+        await session.pc.setRemoteDescription({
+          type: "answer",
+          sdp: payload.sdp,
+        });
+        await flushIce(session);
+      });
+    };
+
+    const onIce = (payload: MeetingSignalIcePayload) => {
+      if (payload.toUserId !== meId || payload.meetingId !== meetingId) return;
+      void (async () => {
+        const session = await ensurePeerSession(payload.fromUserId);
+        const candidate: RTCIceCandidateInit = {
           candidate: payload.candidate,
-          sdpMid: payload.sdpMid ?? null,
-          sdpMLineIndex: payload.sdpMLineIndex ?? null,
-        }),
-      );
+          sdpMid: payload.sdpMid ?? undefined,
+          sdpMLineIndex: payload.sdpMLineIndex ?? undefined,
+        };
+        if (!session.pc.remoteDescription) {
+          session.iceQueue.push(candidate);
+          return;
+        }
+        try {
+          await session.pc.addIceCandidate(candidate);
+        } catch {
+          // ignore
+        }
+      })();
     };
 
     const onMediaState = (payload: MeetingMediaStatePayload) => {
       if (payload.meetingId !== meetingId || payload.user.id === meId) return;
-      upsertRemotePeer(payload.user.id, {
+      applyMediaFlags(payload.user.id, {
         fullName: payload.user.fullName,
         audioEnabled: payload.audioEnabled,
         videoEnabled: payload.videoEnabled,
         screenSharing: payload.screenSharing,
-        ...(payload.screenSharing === false ? { screenStream: null } : {}),
+        screenStreamId: payload.screenStreamId,
       });
-      if (payload.screenSharing === false) {
-        remoteScreenStreamRef.current.delete(payload.user.id);
+    };
+
+    const onMediaSync = (payload: MeetingMediaSyncPayload) => {
+      if (payload.meetingId !== meetingId) return;
+      for (const state of payload.states) {
+        if (state.user.id === meId) continue;
+        applyMediaFlags(state.user.id, {
+          fullName: state.user.fullName,
+          audioEnabled: state.audioEnabled,
+          videoEnabled: state.videoEnabled,
+          screenSharing: state.screenSharing,
+          screenStreamId: state.screenStreamId,
+        });
       }
+      // Late joiner announces own state after receiving sync
+      emitMediaSnapshot();
+    };
+
+    const onModeration = (payload: MeetingModerationPayload) => {
+      if (payload.meetingId !== meetingId || payload.targetUserId !== meId) return;
+      applyForcedMedia({
+        audioEnabled: payload.audioEnabled,
+        videoEnabled: payload.videoEnabled,
+      });
     };
 
     socket.on(SERVER_EVENT.MEETING_SIGNAL_OFFER, onOffer);
     socket.on(SERVER_EVENT.MEETING_SIGNAL_ANSWER, onAnswer);
     socket.on(SERVER_EVENT.MEETING_SIGNAL_ICE, onIce);
     socket.on(SERVER_EVENT.MEETING_MEDIA_STATE, onMediaState);
+    socket.on(SERVER_EVENT.MEETING_MEDIA_SYNC, onMediaSync);
+    socket.on(SERVER_EVENT.MEETING_MODERATION, onModeration);
 
     return () => {
       socket.off(SERVER_EVENT.MEETING_SIGNAL_OFFER, onOffer);
       socket.off(SERVER_EVENT.MEETING_SIGNAL_ANSWER, onAnswer);
       socket.off(SERVER_EVENT.MEETING_SIGNAL_ICE, onIce);
       socket.off(SERVER_EVENT.MEETING_MEDIA_STATE, onMediaState);
+      socket.off(SERVER_EVENT.MEETING_MEDIA_SYNC, onMediaSync);
+      socket.off(SERVER_EVENT.MEETING_MODERATION, onModeration);
     };
   }, [
-    createPeerConnection,
+    applyForcedMedia,
+    applyMediaFlags,
     emitMediaSnapshot,
     enabled,
+    enqueuePeer,
     ensureLocalStream,
+    ensurePeerSession,
+    flushIce,
     meetingId,
     meId,
-    upsertRemotePeer,
   ]);
 
   useEffect(() => {
@@ -520,16 +797,20 @@ export function useMeetingWebRtc({
         });
       }
       const shouldInitiate = meId.localeCompare(remoteUserId) < 0;
-      void createPeerConnection(remoteUserId)
+      void ensurePeerSession(remoteUserId)
         .then(async () => {
-          if (shouldInitiate) await createOfferFor(remoteUserId);
+          if (shouldInitiate) {
+            await enqueuePeer(remoteUserId, async () => {
+              await createOfferFor(remoteUserId);
+            });
+          }
           emitMediaSnapshot();
         })
         .catch(() => null);
     }
 
     const activeSet = new Set(activeRemote);
-    for (const userId of [...pcsRef.current.keys()]) {
+    for (const userId of [...sessionsRef.current.keys()]) {
       if (!activeSet.has(userId)) {
         removePeer(userId);
       }
@@ -537,9 +818,10 @@ export function useMeetingWebRtc({
   }, [
     activeParticipants,
     createOfferFor,
-    createPeerConnection,
     emitMediaSnapshot,
     enabled,
+    enqueuePeer,
+    ensurePeerSession,
     meetingId,
     meId,
     removePeer,
@@ -548,13 +830,15 @@ export function useMeetingWebRtc({
 
   useEffect(() => {
     if (enabled) return;
-    for (const pc of pcsRef.current.values()) {
-      pc.close();
+    for (const userId of [...sessionsRef.current.keys()]) {
+      removePeer(userId);
     }
-    pcsRef.current.clear();
-    screenSenderIdsRef.current.clear();
+    sessionsRef.current.clear();
+    screenSenderRef.current.clear();
     remoteStreamRef.current.clear();
     remoteScreenStreamRef.current.clear();
+    remoteScreenIdRef.current.clear();
+    remoteSharingRef.current.clear();
     setRemotePeers([]);
 
     if (screenTrackRef.current) {
@@ -578,7 +862,7 @@ export function useMeetingWebRtc({
     setAudioEnabled(true);
     setVideoEnabled(true);
     setScreenSharing(false);
-  }, [enabled]);
+  }, [enabled, removePeer]);
 
   const activeScreenShare = useMemo(() => {
     if (screenSharing && localScreenStream) {
@@ -589,7 +873,9 @@ export function useMeetingWebRtc({
         isLocal: true,
       };
     }
-    const remote = remotePeers.find((peer) => peer.screenSharing && peer.screenStream);
+    const remote = remotePeers.find(
+      (peer) => peer.screenSharing && peer.screenStream,
+    );
     if (remote?.screenStream) {
       return {
         userId: remote.userId,
@@ -598,16 +884,7 @@ export function useMeetingWebRtc({
         isLocal: false,
       };
     }
-    // Fallback: peer marked sharing but screen track not separated yet
-    const fallback = remotePeers.find((peer) => peer.screenSharing);
-    if (fallback) {
-      return {
-        userId: fallback.userId,
-        fullName: fallback.fullName,
-        stream: fallback.stream,
-        isLocal: false,
-      };
-    }
+    // No camera-stream fallback — wait until real screen track arrives
     return null;
   }, [localScreenStream, meId, remotePeers, screenSharing]);
 
@@ -623,5 +900,6 @@ export function useMeetingWebRtc({
     toggleVideo,
     startScreenShare,
     stopScreenShare,
+    requestForceMute,
   };
 }

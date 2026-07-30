@@ -8,6 +8,7 @@ export const CLIENT_EVENT = {
   MEETING_SIGNAL_ANSWER: "meeting:signal:answer",
   MEETING_SIGNAL_ICE: "meeting:signal:ice",
   MEETING_MEDIA_STATE: "meeting:media:state",
+  MEETING_MODERATION: "meeting:moderation",
 } as const;
 
 export const SERVER_EVENT = {
@@ -36,6 +37,8 @@ export const SERVER_EVENT = {
   MEETING_SIGNAL_ANSWER: "meeting:signal:answer",
   MEETING_SIGNAL_ICE: "meeting:signal:ice",
   MEETING_MEDIA_STATE: "meeting:media:state",
+  MEETING_MEDIA_SYNC: "meeting:media:sync",
+  MEETING_MODERATION: "meeting:moderation",
 } as const;
 
 export type RoomKind = "workspace" | "board" | "task" | "meeting";
@@ -345,8 +348,33 @@ export type MeetingMediaStatePayload = {
     id: string;
     fullName: string;
   };
+  audioEnabled: boolean;
+  videoEnabled: boolean;
+  screenSharing: boolean;
+  screenStreamId?: string | null;
+  occurredAt: string;
+};
+
+export type MeetingMediaSyncPayload = {
+  meetingId: string;
+  states: Array<{
+    user: {
+      id: string;
+      fullName: string;
+    };
+    audioEnabled: boolean;
+    videoEnabled: boolean;
+    screenSharing: boolean;
+    screenStreamId?: string | null;
+  }>;
+  occurredAt: string;
+};
+
+export type MeetingModerationPayload = {
+  meetingId: string;
+  fromUserId: string;
+  targetUserId: string;
   audioEnabled?: boolean;
   videoEnabled?: boolean;
-  screenSharing?: boolean;
   occurredAt: string;
 };
