@@ -97,8 +97,10 @@ import {
   endMeeting,
   fetchActiveMeeting,
   joinMeeting,
+  kickMeetingParticipant,
   leaveMeeting,
   startMeeting,
+  transferMeetingHost,
 } from "@/lib/meetings";
 
 const PRIORITY_STYLE: Record<TaskPriority, string> = {
@@ -175,6 +177,12 @@ function BoardViewContent() {
   const isInMeeting = useMemo(() => {
     if (!meId || !activeMeeting) return false;
     return activeMeeting.participants.some((p) => p.userId === meId && p.leftAt == null);
+  }, [activeMeeting, meId]);
+  const isMeetingHost = useMemo(() => {
+    if (!meId || !activeMeeting) return false;
+    return activeMeeting.participants.some(
+      (p) => p.userId === meId && p.leftAt == null && p.isHost,
+    );
   }, [activeMeeting, meId]);
   const activeMeetingRoom = useMemo(
     () =>
@@ -623,6 +631,15 @@ function BoardViewContent() {
       if (payload.boardId !== boardId) return;
       setActiveMeeting((prev) => {
         if (!prev || prev.id !== payload.meetingId) return prev;
+        const wasHost = prev.participants.some(
+          (p) => p.userId === meId && p.isHost && p.leftAt == null,
+        );
+        const nowHost = payload.participants.some(
+          (p) => p.userId === meId && p.isHost && p.leftAt == null,
+        );
+        if (!wasHost && nowHost) {
+          queueMicrotask(() => toastSuccess("You are now the meeting host"));
+        }
         return { ...prev, participants: payload.participants };
       });
     };
@@ -708,10 +725,19 @@ function BoardViewContent() {
     if (!activeMeeting || meetingBusy) return;
     setMeetingBusy(true);
     try {
-      await leaveMeeting(activeMeeting.id);
-      await loadActiveMeeting();
+      const result = await leaveMeeting(activeMeeting.id);
       setCallMinimized(false);
-      toastSuccess("Left meeting");
+      if (result.ended) {
+        setActiveMeeting(null);
+        toastSuccess("Meeting ended");
+      } else {
+        await loadActiveMeeting();
+        toastSuccess(
+          result.newHost
+            ? `Left meeting. Host passed to ${result.newHost.fullName}.`
+            : "Left meeting",
+        );
+      }
     } catch (error) {
       toastFromError(error);
     } finally {
@@ -734,6 +760,48 @@ function BoardViewContent() {
       setActiveMeeting(null);
       setCallMinimized(false);
       toastSuccess("Meeting ended");
+    } catch (error) {
+      toastFromError(error);
+    } finally {
+      setMeetingBusy(false);
+    }
+  }
+
+  async function onTransferHost(toUserId: string) {
+    if (!activeMeeting || meetingBusy) return;
+    setMeetingBusy(true);
+    try {
+      const result = await transferMeetingHost(activeMeeting.id, toUserId);
+      setActiveMeeting({
+        ...result.meeting,
+        participants: result.participants,
+      });
+      toastSuccess(`Host transferred to ${result.newHost.fullName}`);
+    } catch (error) {
+      toastFromError(error);
+    } finally {
+      setMeetingBusy(false);
+    }
+  }
+
+  async function onKickParticipant(userId: string) {
+    if (!activeMeeting || meetingBusy) return;
+    const target = activeMeeting.participants.find((p) => p.userId === userId);
+    const ok = await confirm({
+      title: "Remove participant?",
+      description: `Remove ${target?.fullName ?? "this participant"} from the meeting?`,
+      confirmLabel: "Remove",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setMeetingBusy(true);
+    try {
+      const result = await kickMeetingParticipant(activeMeeting.id, userId);
+      setActiveMeeting({
+        ...activeMeeting,
+        participants: result.participants,
+      });
+      toastSuccess("Participant removed");
     } catch (error) {
       toastFromError(error);
     } finally {
@@ -1041,21 +1109,23 @@ function BoardViewContent() {
                   Join
                 </button>
               )}
-              <button
-                type="button"
-                disabled={meetingBusy}
-                aria-label="End meeting"
-                title="End meeting"
-                onClick={() => void onEndMeeting()}
-                className={buttonClassName({
-                  variant: "secondary",
-                  size: "sm",
-                  className: "border-red-200 bg-red-50 text-red-700",
-                })}
-              >
-                <PhoneOff className="h-4 w-4" strokeWidth={2} aria-hidden />
-                End
-              </button>
+              {isMeetingHost ? (
+                <button
+                  type="button"
+                  disabled={meetingBusy}
+                  aria-label="End meeting"
+                  title="End meeting for everyone"
+                  onClick={() => void onEndMeeting()}
+                  className={buttonClassName({
+                    variant: "secondary",
+                    size: "sm",
+                    className: "border-red-200 bg-red-50 text-red-700",
+                  })}
+                >
+                  <PhoneOff className="h-4 w-4" strokeWidth={2} aria-hidden />
+                  End
+                </button>
+              ) : null}
             </>
           ) : (
             <button
@@ -1412,6 +1482,7 @@ function BoardViewContent() {
           open={activeMeeting.status === "ACTIVE" && isInMeeting}
           minimized={callMinimized}
           meName={meName}
+          meId={meId ?? null}
           meeting={activeMeeting}
           localStream={webrtc.localStream}
           remotePeers={webrtc.remotePeers}
@@ -1419,11 +1490,21 @@ function BoardViewContent() {
           audioEnabled={webrtc.audioEnabled}
           videoEnabled={webrtc.videoEnabled}
           screenSharing={webrtc.screenSharing}
+          canModerate={isMeetingHost}
           onToggleAudio={webrtc.toggleAudio}
           onToggleVideo={webrtc.toggleVideo}
           onStartScreenShare={webrtc.startScreenShare}
           onStopScreenShare={webrtc.stopScreenShare}
           onLeave={onLeaveMeeting}
+          onEnd={isMeetingHost ? onEndMeeting : undefined}
+          canEnd={isMeetingHost}
+          onTransferHost={isMeetingHost ? onTransferHost : undefined}
+          onKick={isMeetingHost ? onKickParticipant : undefined}
+          onForceMute={
+            isMeetingHost
+              ? (userId, opts) => webrtc.requestForceMute(userId, opts)
+              : undefined
+          }
           onToggleMinimize={() => setCallMinimized((prev) => !prev)}
         />
       ) : null}

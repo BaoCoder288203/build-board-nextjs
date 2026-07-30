@@ -39,10 +39,34 @@ export async function joinMeeting(meetingId: string) {
 }
 
 export async function leaveMeeting(meetingId: string) {
-  await api.post(`/meetings/${meetingId}/leave`);
+  const { data } = await api.post(`/meetings/${meetingId}/leave`);
+  return data.data as {
+    newHost: MeetingItem["participants"][number] | null;
+    ended: boolean;
+  };
 }
 
 export async function endMeeting(meetingId: string) {
   const { data } = await api.post(`/meetings/${meetingId}/end`);
   return data.data as MeetingItem;
+}
+
+export async function transferMeetingHost(meetingId: string, toUserId: string) {
+  const { data } = await api.post(`/meetings/${meetingId}/transfer-host`, {
+    toUserId,
+  });
+  return data.data as {
+    meeting: MeetingItem;
+    newHost: MeetingItem["participants"][number];
+    participants: MeetingItem["participants"];
+  };
+}
+
+export async function kickMeetingParticipant(meetingId: string, userId: string) {
+  const { data } = await api.post(`/meetings/${meetingId}/kick`, { userId });
+  return data.data as {
+    meeting: MeetingItem;
+    participant: MeetingItem["participants"][number];
+    participants: MeetingItem["participants"];
+  };
 }

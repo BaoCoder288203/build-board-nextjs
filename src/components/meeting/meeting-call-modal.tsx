@@ -34,6 +34,7 @@ type MeetingCallModalProps = {
   open: boolean;
   minimized: boolean;
   meName: string;
+  meId: string | null;
   meeting: MeetingItem;
   localStream: MediaStream | null;
   remotePeers: RemotePeer[];
@@ -41,11 +42,20 @@ type MeetingCallModalProps = {
   audioEnabled: boolean;
   videoEnabled: boolean;
   screenSharing: boolean;
+  canModerate: boolean;
   onToggleAudio: () => void;
   onToggleVideo: () => void;
   onStartScreenShare: () => Promise<void>;
   onStopScreenShare: () => Promise<void>;
   onLeave: () => Promise<void>;
+  onEnd?: () => Promise<void>;
+  canEnd?: boolean;
+  onTransferHost?: (userId: string) => Promise<void>;
+  onKick?: (userId: string) => Promise<void>;
+  onForceMute?: (
+    userId: string,
+    opts: { audioEnabled?: boolean; videoEnabled?: boolean },
+  ) => void;
   onToggleMinimize: () => void;
 };
 
@@ -57,6 +67,11 @@ function StreamTile({
   videoEnabled = true,
   screenSharing = false,
   compact = false,
+  isHost = false,
+  showModeration = false,
+  onTransferHost,
+  onKick,
+  onForceMute,
 }: {
   title: string;
   stream: MediaStream | null;
@@ -65,6 +80,11 @@ function StreamTile({
   videoEnabled?: boolean;
   screenSharing?: boolean;
   compact?: boolean;
+  isHost?: boolean;
+  showModeration?: boolean;
+  onTransferHost?: () => void;
+  onKick?: () => void;
+  onForceMute?: (opts: { audioEnabled?: boolean; videoEnabled?: boolean }) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const showPlaceholder = !videoEnabled;
@@ -73,37 +93,98 @@ function StreamTile({
     const video = videoRef.current;
     if (!video) return;
     video.srcObject = stream;
+    if (!stream) return;
+
+    const refresh = () => {
+      if (video.srcObject !== stream) {
+        video.srcObject = stream;
+      }
+      void video.play().catch(() => undefined);
+    };
+    stream.addEventListener("addtrack", refresh);
+    stream.addEventListener("removetrack", refresh);
+    return () => {
+      stream.removeEventListener("addtrack", refresh);
+      stream.removeEventListener("removetrack", refresh);
+    };
   }, [stream]);
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-bb-border bg-black/90">
-      <div className={`relative ${compact ? "aspect-video" : "aspect-video"}`}>
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted={muted}
-          className={`h-full w-full bg-black ${
-            showPlaceholder ? "opacity-0" : "object-contain"
-          }`}
-        />
-        {showPlaceholder ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900 text-slate-100">
-            <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-slate-700 text-sm font-bold">
-              {title
-                .split(" ")
-                .map((part) => part[0])
-                .join("")
-                .slice(0, 2)
-                .toUpperCase()}
-            </span>
-            <span className="inline-flex items-center gap-1 text-xs text-slate-300">
-              <VideoOff className="h-3.5 w-3.5" aria-hidden />
-              Camera off
-            </span>
-          </div>
-        ) : null}
-      </div>
+    <div
+      className={`relative min-h-0 overflow-hidden rounded-xl border border-bb-border bg-black ${
+        compact ? "aspect-video w-full" : "h-full min-h-[160px] w-full"
+      }`}
+    >
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted={muted}
+        className={`absolute inset-0 h-full w-full bg-black ${
+          showPlaceholder ? "opacity-0" : "object-cover object-center"
+        }`}
+      />
+      {showPlaceholder ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900 text-slate-100">
+          <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-slate-700 text-sm font-bold">
+            {title
+              .split(" ")
+              .map((part) => part[0])
+              .join("")
+              .slice(0, 2)
+              .toUpperCase()}
+          </span>
+          <span className="inline-flex items-center gap-1 text-xs text-slate-300">
+            <VideoOff className="h-3.5 w-3.5" aria-hidden />
+            Camera off
+          </span>
+        </div>
+      ) : null}
+      {isHost ? (
+        <span className="absolute left-2 top-2 rounded bg-amber-400/90 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-bb-ink">
+          Host
+        </span>
+      ) : null}
+      {showModeration ? (
+        <div className="absolute right-2 top-2 flex flex-col gap-1 rounded-md border border-white/15 bg-black/70 p-1 text-[10px] font-semibold text-white shadow-lg">
+          {onForceMute ? (
+            <>
+              <button
+                type="button"
+                className="rounded px-2 py-1 text-left hover:bg-white/15"
+                onClick={() => onForceMute({ audioEnabled: false })}
+              >
+                Mute mic
+              </button>
+              <button
+                type="button"
+                className="rounded px-2 py-1 text-left hover:bg-white/15"
+                onClick={() => onForceMute({ videoEnabled: false })}
+              >
+                Stop cam
+              </button>
+            </>
+          ) : null}
+          {onTransferHost ? (
+            <button
+              type="button"
+              className="rounded px-2 py-1 text-left hover:bg-white/15"
+              onClick={onTransferHost}
+            >
+              Make host
+            </button>
+          ) : null}
+          {onKick ? (
+            <button
+              type="button"
+              className="rounded px-2 py-1 text-left text-rose-200 hover:bg-rose-500/30"
+              onClick={onKick}
+            >
+              Remove
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/70 to-transparent px-3 py-2 text-xs text-white">
         <span className="truncate font-semibold">{title}</span>
         <span className="inline-flex items-center gap-2">
@@ -150,6 +231,20 @@ function ScreenPane({
     const video = videoRef.current;
     if (!video) return;
     video.srcObject = stream;
+    if (!stream) return;
+
+    const refresh = () => {
+      if (video.srcObject !== stream) {
+        video.srcObject = stream;
+      }
+      void video.play().catch(() => undefined);
+    };
+    stream.addEventListener("addtrack", refresh);
+    stream.addEventListener("removetrack", refresh);
+    return () => {
+      stream.removeEventListener("addtrack", refresh);
+      stream.removeEventListener("removetrack", refresh);
+    };
   }, [stream]);
 
   return (
@@ -173,6 +268,7 @@ export function MeetingCallModal({
   open,
   minimized,
   meName,
+  meId,
   meeting,
   localStream,
   remotePeers,
@@ -180,11 +276,17 @@ export function MeetingCallModal({
   audioEnabled,
   videoEnabled,
   screenSharing,
+  canModerate,
   onToggleAudio,
   onToggleVideo,
   onStartScreenShare,
   onStopScreenShare,
   onLeave,
+  onEnd,
+  canEnd = false,
+  onTransferHost,
+  onKick,
+  onForceMute,
   onToggleMinimize,
 }: MeetingCallModalProps) {
   const [splitRatio, setSplitRatio] = useState(0.62);
@@ -268,6 +370,38 @@ export function MeetingCallModal({
 
   if (!open) return null;
 
+  const hostUserId =
+    meeting.participants.find((p) => p.leftAt == null && p.isHost)?.userId ??
+    null;
+  const iAmHost = Boolean(meId && hostUserId === meId);
+
+  const renderPeerTile = (peer: RemotePeer, compactTile: boolean) => (
+    <StreamTile
+      key={peer.userId}
+      title={peer.fullName}
+      stream={peer.stream}
+      audioEnabled={peer.audioEnabled}
+      videoEnabled={peer.videoEnabled}
+      screenSharing={peer.screenSharing}
+      compact={compactTile}
+      isHost={peer.userId === hostUserId}
+      showModeration={canModerate && iAmHost}
+      onForceMute={
+        canModerate && onForceMute
+          ? (opts) => onForceMute(peer.userId, opts)
+          : undefined
+      }
+      onTransferHost={
+        canModerate && onTransferHost
+          ? () => void onTransferHost(peer.userId)
+          : undefined
+      }
+      onKick={
+        canModerate && onKick ? () => void onKick(peer.userId) : undefined
+      }
+    />
+  );
+
   const participantTiles = (
     <>
       <StreamTile
@@ -277,19 +411,25 @@ export function MeetingCallModal({
         audioEnabled={audioEnabled}
         videoEnabled={videoEnabled}
         screenSharing={screenSharing}
-        compact
+        isHost={iAmHost}
       />
-      {remotePeers.map((peer) => (
-        <StreamTile
-          key={peer.userId}
-          title={peer.fullName}
-          stream={peer.stream}
-          audioEnabled={peer.audioEnabled}
-          videoEnabled={peer.videoEnabled}
-          screenSharing={peer.screenSharing}
-          compact
-        />
-      ))}
+      {remotePeers.map((peer) => renderPeerTile(peer, false))}
+    </>
+  );
+
+  const sidebarTiles = (
+    <>
+      <StreamTile
+        title={`${meName} (You)`}
+        stream={localStream}
+        muted
+        audioEnabled={audioEnabled}
+        videoEnabled={videoEnabled}
+        screenSharing={screenSharing}
+        compact
+        isHost={iAmHost}
+      />
+      {remotePeers.map((peer) => renderPeerTile(peer, true))}
     </>
   );
 
@@ -360,13 +500,26 @@ export function MeetingCallModal({
             className={buttonClassName({
               variant: "secondary",
               size: "sm",
-              className:
-                "border-red-300/40 bg-red-500/20 text-red-100 hover:bg-red-500/30",
+              className: "border-white/20 bg-white/10 text-white hover:bg-white/20",
             })}
           >
-            <PhoneOff className="h-4 w-4" aria-hidden />
-            Leave call
+            Leave
           </button>
+          {canEnd && onEnd ? (
+            <button
+              type="button"
+              onClick={() => void onEnd()}
+              className={buttonClassName({
+                variant: "secondary",
+                size: "sm",
+                className:
+                  "border-red-300/40 bg-red-500/20 text-red-100 hover:bg-red-500/30",
+              })}
+            >
+              <PhoneOff className="h-4 w-4" aria-hidden />
+              End call
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -398,12 +551,14 @@ export function MeetingCallModal({
             style={{ width: `${(1 - splitRatio) * 100}%` }}
           >
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {participantTiles}
+              {sidebarTiles}
             </div>
           </div>
         </div>
       ) : (
-        <div className={`grid flex-1 ${gridClass} gap-3 overflow-y-auto p-4`}>
+        <div
+          className={`grid min-h-0 flex-1 ${gridClass} auto-rows-fr gap-3 overflow-hidden p-4`}
+        >
           {participantTiles}
         </div>
       )}
