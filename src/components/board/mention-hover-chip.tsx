@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import {
   parseMentionTokens,
   type MentionMember,
@@ -13,15 +14,6 @@ type Props = {
   label: string;
   user: MentionUser;
 };
-
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .map((p) => p[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
 
 export function MentionHoverChip({ label, user }: Props) {
   const tipId = useId();
@@ -84,21 +76,12 @@ export function MentionHoverChip({ label, user }: Props) {
           className="absolute left-0 top-full z-30 mt-1.5 w-[220px] rounded-xl border border-bb-border bg-white p-3 text-left shadow-bb-lg"
         >
           <span className="flex items-start gap-2.5">
-            {user.avatar ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={user.avatar}
-                alt=""
-                className="h-10 w-10 shrink-0 rounded-full object-cover ring-1 ring-bb-border/60"
-              />
-            ) : (
-              <span
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-bb-blue text-xs font-bold text-white"
-                aria-hidden
-              >
-                {initials(user.fullName)}
-              </span>
-            )}
+            <UserAvatar
+              name={user.fullName}
+              avatar={user.avatar}
+              size="xl"
+              ringClassName="ring-1 ring-bb-border/60"
+            />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-bold text-bb-ink">
                 {user.fullName}

@@ -2,6 +2,7 @@
 
 import { UserPlus, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import {
   assignTask,
   unassignTask,
@@ -19,15 +20,6 @@ type Props = {
   /** full = section UI; picker = member list only (for popover) */
   variant?: "full" | "picker";
 };
-
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .map((p) => p[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
 
 export function TaskAssigneesPanel({
   taskId,
@@ -120,9 +112,11 @@ export function TaskAssigneesPanel({
                 disabled={busyId === m.user.id}
                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-bb-sky disabled:opacity-50"
               >
-                <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-bb-blue text-[10px] font-bold text-white">
-                  {initials(m.user.fullName)}
-                </span>
+                <UserAvatar
+                  name={m.user.fullName}
+                  avatar={m.user.avatar}
+                  size="md"
+                />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-semibold text-bb-ink">
                     {m.user.fullName}
@@ -150,9 +144,11 @@ export function TaskAssigneesPanel({
                 key={a.workspaceMemberId}
                 className="inline-flex items-center gap-1 rounded-full border border-bb-border bg-bb-sky/50 py-0.5 pl-1 pr-1"
               >
-                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-bb-blue text-[9px] font-bold text-white">
-                  {initials(a.user.fullName)}
-                </span>
+                <UserAvatar
+                  name={a.user.fullName}
+                  avatarUrl={a.user.avatarUrl}
+                  size="xs"
+                />
                 <button
                   type="button"
                   onClick={() => void onUnassign(a.user.id)}
@@ -199,12 +195,11 @@ export function TaskAssigneesPanel({
               key={a.workspaceMemberId}
               className="inline-flex items-center gap-1.5 rounded-full border border-bb-border bg-bb-sky/50 py-1 pl-1 pr-1.5"
             >
-              <span
-                className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-bb-blue text-[10px] font-bold text-white"
-                aria-hidden
-              >
-                {initials(a.user.fullName)}
-              </span>
+              <UserAvatar
+                name={a.user.fullName}
+                avatarUrl={a.user.avatarUrl}
+                size="sm"
+              />
               <span className="max-w-[120px] truncate text-xs font-semibold text-bb-ink">
                 {a.user.fullName}
               </span>

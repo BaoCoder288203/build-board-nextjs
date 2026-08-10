@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import type { MentionMember } from "@/lib/mentions";
 
 type Props = {
@@ -11,15 +12,6 @@ type Props = {
   onHoverIndex?: (index: number) => void;
   className?: string;
 };
-
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .map((p) => p[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
 
 export function MentionPicker({
   members,
@@ -72,21 +64,11 @@ export function MentionPicker({
               }}
               onMouseEnter={() => onHoverIndex?.(index)}
             >
-              {m.user.avatar ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={m.user.avatar}
-                  alt=""
-                  className="h-7 w-7 shrink-0 rounded-full object-cover ring-1 ring-bb-border/60"
-                />
-              ) : (
-                <span
-                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-bb-blue text-[10px] font-bold text-white"
-                  aria-hidden
-                >
-                  {initials(m.user.fullName)}
-                </span>
-              )}
+              <UserAvatar
+                name={m.user.fullName}
+                avatar={m.user.avatar}
+                size="md"
+              />
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-semibold">{m.user.fullName}</span>
                 {m.user.username ? (

@@ -8,6 +8,7 @@ import {
   type RichCommentEditorHandle,
 } from "@/components/board/rich-comment-editor";
 import { Button } from "@/components/ui/button";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import {
   COMMENT_REACTION_EMOJIS,
   createComment,
@@ -46,15 +47,6 @@ type Props = {
   /** sidebar = hide section title (modal column already has one) */
   variant?: "full" | "sidebar";
 };
-
-function initials(name: string) {
-  return name
-    .split(" ")
-    .map((p) => p[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
 
 function formatTime(iso: string) {
   try {
@@ -530,9 +522,11 @@ export function TaskCommentPanel({
         }`}
       >
         <div className="flex items-start gap-2">
-          <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-bb-blue text-[10px] font-bold text-white">
-            {initials(comment.author.user.fullName)}
-          </span>
+          <UserAvatar
+            name={comment.author.user.fullName}
+            avatar={comment.author.user.avatar}
+            size="md"
+          />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
               <span className="text-sm font-bold text-bb-ink">
