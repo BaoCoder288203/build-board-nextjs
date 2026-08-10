@@ -70,3 +70,42 @@ export async function kickMeetingParticipant(meetingId: string, userId: string) 
     participants: MeetingItem["participants"];
   };
 }
+
+export async function updateMyMeetingAppearance(
+  meetingId: string,
+  body: {
+    displayName?: string | null;
+    tileBgMode?: "NONE" | "BLUR" | "IMAGE";
+    tileBgUrl?: string | null;
+  },
+) {
+  const { data } = await api.patch(`/meetings/${meetingId}/me`, body);
+  return data.data as {
+    meeting: MeetingItem;
+    participant: MeetingItem["participants"][number];
+    participants: MeetingItem["participants"];
+  };
+}
+
+export async function uploadMeetingBackground(meetingId: string, file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await api.post(`/meetings/${meetingId}/me/background`, form, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data.data as {
+    meeting: MeetingItem;
+    participant: MeetingItem["participants"][number];
+    participants: MeetingItem["participants"];
+  };
+}
+
+export type MeetingIceServers = {
+  iceServers: RTCIceServer[];
+  iceTransportPolicy: "all" | "relay";
+};
+
+export async function fetchMeetingIceServers() {
+  const { data } = await api.get(`/meetings/ice-servers`);
+  return data.data as MeetingIceServers;
+}

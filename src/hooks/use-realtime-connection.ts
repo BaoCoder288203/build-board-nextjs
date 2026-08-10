@@ -15,27 +15,22 @@ import {
 export function useRealtimeConnection() {
   const user = useAuthStore((s) => s.user);
   const status = useRealtimeStore((s) => s.status);
-  const error = useRealtimeStore((s) => s.error);
   const desiredRooms = useRealtimeStore((s) => s.desiredRooms);
   const setStatus = useRealtimeStore((s) => s.setStatus);
   const setError = useRealtimeStore((s) => s.setError);
   const setRoomPresence = useRealtimeStore((s) => s.setRoomPresence);
   const clearRooms = useRealtimeStore((s) => s.clearRooms);
   const joinedRoomsRef = useRef<Set<RoomKey>>(new Set());
+  const desiredRoomsRef = useRef(desiredRooms);
+  desiredRoomsRef.current = desiredRooms;
 
   useEffect(() => {
     if (!user) {
       disconnectRealtime();
       joinedRoomsRef.current.clear();
-      if (desiredRooms.length > 0) {
-        clearRooms();
-      }
-      if (error) {
-        setError(null);
-      }
-      if (status !== "idle") {
-        setStatus("idle");
-      }
+      clearRooms();
+      setError(null);
+      setStatus("idle");
       return;
     }
 
@@ -45,7 +40,7 @@ export function useRealtimeConnection() {
       setStatus("connected");
       setError(null);
       joinedRoomsRef.current.clear();
-      for (const room of desiredRooms) {
+      for (const room of desiredRoomsRef.current) {
         socket.emit(CLIENT_EVENT.ROOM_JOIN, { room });
         joinedRoomsRef.current.add(room);
       }
@@ -56,11 +51,11 @@ export function useRealtimeConnection() {
       setStatus("disconnected");
     };
 
-    const onConnectError = (error: Error) => {
+    const onConnectError = (err: Error) => {
       setStatus("error");
       setError({
         code: "UNAUTHORIZED",
-        message: error.message || "Realtime connection failed",
+        message: err.message || "Realtime connection failed",
       });
     };
 
@@ -71,6 +66,7 @@ export function useRealtimeConnection() {
     const onSocketError = (payload: RealtimeSocketErrorPayload) => {
       setError(payload);
     };
+
     const onRoomPresence = (payload: RoomPresencePayload) => {
       setRoomPresence(payload.room, payload.users);
     };
@@ -82,7 +78,14 @@ export function useRealtimeConnection() {
     socket.on(SERVER_EVENT.SOCKET_ERROR, onSocketError);
     socket.on(SERVER_EVENT.ROOM_PRESENCE, onRoomPresence);
 
-    if (!socket.connected) {
+    if (socket.connected) {
+      setStatus("connected");
+      for (const room of desiredRoomsRef.current) {
+        if (joinedRoomsRef.current.has(room)) continue;
+        socket.emit(CLIENT_EVENT.ROOM_JOIN, { room });
+        joinedRoomsRef.current.add(room);
+      }
+    } else {
       setStatus("connecting");
       socket.connect();
     }
@@ -95,16 +98,7 @@ export function useRealtimeConnection() {
       socket.off(SERVER_EVENT.SOCKET_ERROR, onSocketError);
       socket.off(SERVER_EVENT.ROOM_PRESENCE, onRoomPresence);
     };
-  }, [
-    user,
-    setError,
-    setStatus,
-    desiredRooms,
-    clearRooms,
-    error,
-    status,
-    setRoomPresence,
-  ]);
+  }, [user, setError, setStatus, setRoomPresence, clearRooms]);
 
   useEffect(() => {
     if (!user) return;

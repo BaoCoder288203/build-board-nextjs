@@ -14,6 +14,12 @@ import {
   type MeetingSignalOfferPayload,
 } from "@/lib/realtime/events";
 import { toastFromError } from "@/lib/toast";
+import {
+  VirtualBackgroundProcessor,
+  type VirtualBackgroundOptions,
+} from "@/lib/meeting/virtual-background";
+import { fetchMeetingIceServers } from "@/lib/meetings";
+import type { MeetingTileBgMode } from "@/lib/realtime/events";
 
 export type RemotePeer = {
   userId: string;
@@ -43,16 +49,19 @@ type PeerSession = {
   chain: Promise<void>;
 };
 
-function parseIceServers(): IceServerConfig {
-  const fallback: IceServerConfig = [{ urls: "stun:stun.l.google.com:19302" }];
+const FALLBACK_ICE: IceServerConfig = [
+  { urls: "stun:stun.l.google.com:19302" },
+];
+
+function parsePublicIceServers(): IceServerConfig {
   const raw = process.env.NEXT_PUBLIC_WEBRTC_ICE_SERVERS;
-  if (!raw) return fallback;
+  if (!raw) return FALLBACK_ICE;
   try {
     const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return fallback;
+    if (!Array.isArray(parsed) || parsed.length === 0) return FALLBACK_ICE;
     return parsed as IceServerConfig;
   } catch {
-    return fallback;
+    return FALLBACK_ICE;
   }
 }
 
@@ -61,7 +70,7 @@ function streamHasLiveTracks(stream: MediaStream | null) {
   return stream.getTracks().some((track) => track.readyState === "live");
 }
 
-const ICE_SERVERS = parseIceServers();
+const PUBLIC_ICE_SERVERS = parsePublicIceServers();
 
 export function useMeetingWebRtc({
   meetingId,
@@ -84,10 +93,17 @@ export function useMeetingWebRtc({
   const remoteScreenIdRef = useRef<Map<string, string | null>>(new Map());
   const remoteSharingRef = useRef<Map<string, boolean>>(new Map());
   const localRef = useRef<MediaStream | null>(null);
+  const rawLocalRef = useRef<MediaStream | null>(null);
   const localScreenRef = useRef<MediaStream | null>(null);
   const cameraTrackRef = useRef<MediaStreamTrack | null>(null);
+  const rawCameraTrackRef = useRef<MediaStreamTrack | null>(null);
   const screenTrackRef = useRef<MediaStreamTrack | null>(null);
   const screenSenderRef = useRef<Map<string, RTCRtpSender>>(new Map());
+  const vbProcessorRef = useRef<VirtualBackgroundProcessor | null>(null);
+  const vbModeRef = useRef<MeetingTileBgMode>("NONE");
+  const iceServersRef = useRef<IceServerConfig>(PUBLIC_ICE_SERVERS);
+  const iceTransportPolicyRef = useRef<RTCIceTransportPolicy>("all");
+  const iceReadyRef = useRef<Promise<void>>(Promise.resolve());
   const audioEnabledRef = useRef(true);
   const videoEnabledRef = useRef(true);
   const screenSharingRef = useRef(false);
@@ -251,11 +267,27 @@ export function useMeetingWebRtc({
     if (localRef.current && streamHasLiveTracks(localRef.current)) {
       return localRef.current;
     }
+    if (vbProcessorRef.current) {
+      vbProcessorRef.current.dispose();
+      vbProcessorRef.current = null;
+    }
+    vbModeRef.current = "NONE";
     if (localRef.current) {
       for (const track of localRef.current.getTracks()) {
-        track.stop();
+        const raw = rawLocalRef.current;
+        const shared =
+          raw &&
+          (raw.getAudioTracks().includes(track) ||
+            raw.getVideoTracks().includes(track));
+        if (!shared) track.stop();
       }
       localRef.current = null;
+    }
+    if (rawLocalRef.current) {
+      for (const track of rawLocalRef.current.getTracks()) {
+        track.stop();
+      }
+      rawLocalRef.current = null;
     }
 
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -270,12 +302,83 @@ export function useMeetingWebRtc({
     for (const audioTrack of stream.getAudioTracks()) {
       audioTrack.enabled = audioEnabledRef.current;
     }
+    rawCameraTrackRef.current = videoTrack ?? null;
     cameraTrackRef.current = videoTrack ?? null;
+    rawLocalRef.current = stream;
     localRef.current = stream;
     setLocalStream(stream);
     return stream;
   }, []);
 
+  const rebuildOutboundStream = useCallback((videoTrack: MediaStreamTrack) => {
+    const raw = rawLocalRef.current;
+    const audioTracks = raw?.getAudioTracks() ?? [];
+    videoTrack.enabled = videoEnabledRef.current;
+    cameraTrackRef.current = videoTrack;
+    const outbound = new MediaStream([...audioTracks, videoTrack]);
+    localRef.current = outbound;
+    setLocalStream(outbound);
+    return outbound;
+  }, []);
+
+  const replaceOutboundCameraTrack = useCallback(
+    async (videoTrack: MediaStreamTrack) => {
+      rebuildOutboundStream(videoTrack);
+      for (const [userId, session] of sessionsRef.current.entries()) {
+        const screenSender = screenSenderRef.current.get(userId);
+        for (const sender of session.pc.getSenders()) {
+          if (sender.track?.kind !== "video") continue;
+          if (sender === screenSender) continue;
+          try {
+            await sender.replaceTrack(videoTrack);
+          } catch {
+            // Peer may be closing
+          }
+        }
+      }
+    },
+    [rebuildOutboundStream],
+  );
+
+  const setVirtualBackground = useCallback(
+    async (options: VirtualBackgroundOptions) => {
+      await runSerialized(async () => {
+        if (!rawLocalRef.current) {
+          await ensureLocalStream();
+        }
+        const raw = rawLocalRef.current;
+        if (!raw) return;
+
+        if (options.mode === "NONE") {
+          vbModeRef.current = "NONE";
+          if (vbProcessorRef.current) {
+            await vbProcessorRef.current.stop();
+          }
+          const rawVideo = rawCameraTrackRef.current;
+          if (rawVideo && rawVideo.readyState !== "ended") {
+            await replaceOutboundCameraTrack(rawVideo);
+          }
+          return;
+        }
+
+        if (!vbProcessorRef.current) {
+          vbProcessorRef.current = new VirtualBackgroundProcessor();
+        }
+        try {
+          const processed = await vbProcessorRef.current.start(raw, options);
+          if (!processed) return;
+          vbModeRef.current = options.mode;
+          await replaceOutboundCameraTrack(processed);
+        } catch (error) {
+          vbModeRef.current = "NONE";
+          toastFromError(error);
+          const rawVideo = rawCameraTrackRef.current;
+          if (rawVideo) await replaceOutboundCameraTrack(rawVideo);
+        }
+      });
+    },
+    [ensureLocalStream, replaceOutboundCameraTrack, runSerialized],
+  );
   const classifyRemoteVideo = useCallback(
     (userId: string, _track: MediaStreamTrack, inbound: MediaStream | null) => {
       const knownScreenId = remoteScreenIdRef.current.get(userId);
@@ -448,7 +551,12 @@ export function useMeetingWebRtc({
       const selfId = meIdRef.current;
       if (!selfId) throw new Error("Missing local user id");
 
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      await iceReadyRef.current;
+
+      const pc = new RTCPeerConnection({
+        iceServers: iceServersRef.current,
+        iceTransportPolicy: iceTransportPolicyRef.current,
+      });
       const session: PeerSession = {
         pc,
         iceQueue: [],
@@ -486,7 +594,24 @@ export function useMeetingWebRtc({
 
       pc.onconnectionstatechange = () => {
         if (pc.connectionState === "failed") {
+          if (process.env.NODE_ENV === "development") {
+            console.warn("[webrtc] connection failed", targetUserId);
+          }
           void recoverPeer(targetUserId);
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        if (
+          process.env.NODE_ENV === "development" &&
+          (pc.iceConnectionState === "failed" ||
+            pc.iceConnectionState === "disconnected")
+        ) {
+          console.warn(
+            "[webrtc] iceConnectionState",
+            pc.iceConnectionState,
+            targetUserId,
+          );
         }
       };
 
@@ -535,10 +660,15 @@ export function useMeetingWebRtc({
   }, [emitMediaSnapshot]);
 
   const toggleVideo = useCallback(() => {
-    const cameraTrack = cameraTrackRef.current;
-    if (!cameraTrack || cameraTrack.readyState === "ended") return;
-    const next = !cameraTrack.enabled;
-    cameraTrack.enabled = next;
+    const next = !videoEnabledRef.current;
+    const rawCameraTrack = rawCameraTrackRef.current;
+    if (rawCameraTrack && rawCameraTrack.readyState !== "ended") {
+      rawCameraTrack.enabled = next;
+    }
+    const outbound = cameraTrackRef.current;
+    if (outbound && outbound.readyState !== "ended") {
+      outbound.enabled = next;
+    }
     videoEnabledRef.current = next;
     setVideoEnabled(next);
     emitMediaSnapshot();
@@ -553,10 +683,20 @@ export function useMeetingWebRtc({
             track.enabled = opts.audioEnabled;
           }
         }
+        const raw = rawLocalRef.current;
+        if (raw) {
+          for (const track of raw.getAudioTracks()) {
+            track.enabled = opts.audioEnabled;
+          }
+        }
         audioEnabledRef.current = opts.audioEnabled;
         setAudioEnabled(opts.audioEnabled);
       }
       if (opts.videoEnabled !== undefined) {
+        const rawCameraTrack = rawCameraTrackRef.current;
+        if (rawCameraTrack && rawCameraTrack.readyState !== "ended") {
+          rawCameraTrack.enabled = opts.videoEnabled;
+        }
         const cameraTrack = cameraTrackRef.current;
         if (cameraTrack && cameraTrack.readyState !== "ended") {
           cameraTrack.enabled = opts.videoEnabled;
@@ -649,6 +789,22 @@ export function useMeetingWebRtc({
   useEffect(() => {
     if (!enabled || !meetingId || !meId) return;
     const socket = connectRealtime();
+
+    iceReadyRef.current = fetchMeetingIceServers()
+      .then((cfg) => {
+        if (Array.isArray(cfg.iceServers) && cfg.iceServers.length > 0) {
+          iceServersRef.current = cfg.iceServers;
+        } else {
+          iceServersRef.current = PUBLIC_ICE_SERVERS;
+        }
+        iceTransportPolicyRef.current =
+          cfg.iceTransportPolicy === "relay" ? "relay" : "all";
+      })
+      .catch(() => {
+        iceServersRef.current = PUBLIC_ICE_SERVERS;
+        iceTransportPolicyRef.current = "all";
+      });
+
     void ensureLocalStream()
       .then(() => emitMediaSnapshot())
       .catch((error) => {
@@ -850,11 +1006,29 @@ export function useMeetingWebRtc({
 
     if (localRef.current) {
       for (const track of localRef.current.getTracks()) {
-        track.stop();
+        // Outbound may share audio with raw; stop only if not in raw
+        const raw = rawLocalRef.current;
+        const shared =
+          raw &&
+          (raw.getAudioTracks().includes(track) ||
+            raw.getVideoTracks().includes(track));
+        if (!shared) track.stop();
       }
       localRef.current = null;
     }
+    if (rawLocalRef.current) {
+      for (const track of rawLocalRef.current.getTracks()) {
+        track.stop();
+      }
+      rawLocalRef.current = null;
+    }
     cameraTrackRef.current = null;
+    rawCameraTrackRef.current = null;
+    if (vbProcessorRef.current) {
+      vbProcessorRef.current.dispose();
+      vbProcessorRef.current = null;
+    }
+    vbModeRef.current = "NONE";
     setLocalStream(null);
     audioEnabledRef.current = true;
     videoEnabledRef.current = true;
@@ -901,5 +1075,6 @@ export function useMeetingWebRtc({
     startScreenShare,
     stopScreenShare,
     requestForceMute,
+    setVirtualBackground,
   };
 }
