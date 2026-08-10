@@ -28,6 +28,7 @@ import { TaskChecklistPanel } from "@/components/board/task-checklist-panel";
 import { TaskCommentPanel } from "@/components/board/task-comment-panel";
 import { TaskLabelsPanel } from "@/components/board/task-labels-panel";
 import { Button } from "@/components/ui/button";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import { Input } from "@/components/ui/input";
 import { createChecklist } from "@/lib/checklists";
 import { toastFromError, toastSuccess } from "@/lib/toast";
@@ -141,15 +142,6 @@ function Popover({
       {children}
     </div>
   );
-}
-
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .map((p) => p[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
 }
 
 export function TaskDetailModal({
@@ -555,13 +547,12 @@ export function TaskDetailModal({
                 </p>
                 <div className="flex flex-wrap items-center gap-1.5">
                   {task.assignees.map((a) => (
-                    <span
+                    <UserAvatar
                       key={a.workspaceMemberId}
-                      title={a.user.fullName}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-bb-blue text-[10px] font-bold text-white"
-                    >
-                      {initials(a.user.fullName)}
-                    </span>
+                      name={a.user.fullName}
+                      avatarUrl={a.user.avatarUrl}
+                      size="lg"
+                    />
                   ))}
                   <button
                     type="button"

@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useEntityCache } from "@/stores/entity-cache";
+import { UserAvatar } from "@/components/ui/user-avatar";
 
 type Props = {
   variant?: "default" | "onDark";
@@ -55,7 +56,6 @@ export function UserAvatarMenu({ variant = "default" }: Props) {
     router.replace("/");
   }
 
-  const initial = (user?.fullName?.[0] ?? "U").toUpperCase();
   const isDark = variant === "onDark";
 
   return (
@@ -74,24 +74,16 @@ export function UserAvatarMenu({ variant = "default" }: Props) {
           isDark ? "hover:bg-white/15" : "hover:bg-bb-sky"
         }`}
       >
-        {user?.avatar ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={user.avatar}
-            alt=""
-            className={`h-9 w-9 rounded-full object-cover ${
-              isDark ? "ring-2 ring-white/40" : ""
-            }`}
-          />
-        ) : (
-          <span
-            className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white ${
-              isDark ? "bg-white/25 ring-2 ring-white/40" : "bg-bb-blue"
-            }`}
-          >
-            {initial}
-          </span>
-        )}
+        <UserAvatar
+          name={user?.fullName ?? "Account"}
+          avatar={user?.avatar}
+          size="lg"
+          className="!h-9 !w-9 !text-sm"
+          ringClassName={isDark ? "ring-2 ring-white/40" : ""}
+          fallbackClassName={
+            isDark ? "bg-white/25 text-white" : "bg-bb-blue text-white"
+          }
+        />
         <span className="hidden min-w-0 text-left sm:block">
           <span
             className={`block max-w-[10rem] truncate text-sm font-semibold ${

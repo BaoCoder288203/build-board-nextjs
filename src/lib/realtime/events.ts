@@ -266,11 +266,17 @@ export type NotificationNewPayload = {
   occurredAt: string;
 };
 
+export type MeetingTileBgMode = "NONE" | "BLUR" | "IMAGE";
+
 export type MeetingParticipant = {
   userId: string;
   fullName: string;
+  accountName?: string;
+  displayName?: string | null;
   avatar: string | null;
   isHost: boolean;
+  tileBgMode?: MeetingTileBgMode;
+  tileBgUrl?: string | null;
   joinedAt: string;
   leftAt: string | null;
 };

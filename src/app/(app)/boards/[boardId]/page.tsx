@@ -5,15 +5,11 @@ import {
   Calendar,
   CheckSquare,
   Eye,
-  LogIn,
-  LogOut,
   MessageSquare,
   Paperclip,
-  PhoneOff,
   Pin,
   Plus,
   Share2,
-  Video,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -31,10 +27,12 @@ import { TaskDetailModal } from "@/components/board/task-detail-modal";
 import { BoardActivityButton } from "@/components/activity/board-activity-button";
 import { BoardShareModal } from "@/components/board/board-share-modal";
 import { MeetingCallModal } from "@/components/meeting/meeting-call-modal";
+import { MeetingFab } from "@/components/meeting/meeting-fab";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { AppShell } from "@/components/app-shell";
 import { buttonClassName } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import { useRealtimeRoom } from "@/hooks/use-realtime-room";
 import { useMeetingWebRtc } from "@/hooks/use-meeting-webrtc";
 import { useRealtimeSnapshotResync } from "@/hooks/use-realtime-snapshot-resync";
@@ -101,6 +99,8 @@ import {
   leaveMeeting,
   startMeeting,
   transferMeetingHost,
+  updateMyMeetingAppearance,
+  uploadMeetingBackground,
 } from "@/lib/meetings";
 
 const PRIORITY_STYLE: Record<TaskPriority, string> = {
@@ -134,10 +134,7 @@ function BoardViewContent() {
   const roomPresence = useRealtimeStore(
     (s) => s.roomPresence[activeBoardRoom] ?? EMPTY_PRESENCE,
   );
-  const otherPresence = useMemo(
-    () => roomPresence.filter((member) => member.id !== meId),
-    [roomPresence, meId],
-  );
+  const activeBoardUsers = roomPresence;
 
   const [board, setBoard] = useState<BoardDetail | null>(
     () => getBoardPageCache(boardId)?.board ?? null,
@@ -202,6 +199,20 @@ function BoardViewContent() {
     meId: meId ?? null,
     participants: activeParticipants,
   });
+
+  useEffect(() => {
+    if (!isInMeeting || !meId || !activeMeeting) return;
+    const me = activeMeeting.participants.find(
+      (p) => p.userId === meId && p.leftAt == null,
+    );
+    const mode = me?.tileBgMode ?? "NONE";
+    void webrtc.setVirtualBackground({
+      mode,
+      imageUrl: me?.tileBgUrl ?? null,
+    });
+    // Re-apply only when entering a meeting room, not on every participant tick
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isInMeeting, activeMeeting?.id, meId]);
 
   const load = useCallback(async () => {
     const cached = getBoardPageCache(boardId);
@@ -809,6 +820,49 @@ function BoardViewContent() {
     }
   }
 
+  async function onUpdateMyAppearance(input: {
+    displayName?: string | null;
+    tileBgMode?: "NONE" | "BLUR" | "IMAGE";
+  }) {
+    if (!activeMeeting) return;
+    try {
+      const result = await updateMyMeetingAppearance(activeMeeting.id, input);
+      setActiveMeeting({
+        ...result.meeting,
+        participants: result.participants,
+      });
+      const me = result.participants.find((p) => p.userId === meId);
+      if (me && input.tileBgMode !== undefined) {
+        await webrtc.setVirtualBackground({
+          mode: me.tileBgMode ?? input.tileBgMode,
+          imageUrl: me.tileBgUrl ?? null,
+        });
+      }
+    } catch (error) {
+      toastFromError(error);
+      throw error;
+    }
+  }
+
+  async function onUploadMyBackground(file: File) {
+    if (!activeMeeting) return;
+    try {
+      const result = await uploadMeetingBackground(activeMeeting.id, file);
+      setActiveMeeting({
+        ...result.meeting,
+        participants: result.participants,
+      });
+      const me = result.participants.find((p) => p.userId === meId);
+      await webrtc.setVirtualBackground({
+        mode: "IMAGE",
+        imageUrl: me?.tileBgUrl ?? null,
+      });
+    } catch (error) {
+      toastFromError(error);
+      throw error;
+    }
+  }
+
   async function onDeleteTask() {
     if (!selected) return;
     const ok = await confirm({
@@ -961,18 +1015,13 @@ function BoardViewContent() {
           {task.assignees.length > 0 ? (
             <div className="mt-2 flex -space-x-1.5">
               {task.assignees.slice(0, 3).map((a) => (
-                <span
+                <UserAvatar
                   key={a.workspaceMemberId}
-                  title={a.user.fullName}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-bb-blue text-[10px] font-bold text-white ring-2 ring-white"
-                >
-                  {a.user.fullName
-                    .split(" ")
-                    .map((p) => p[0])
-                    .join("")
-                    .slice(0, 2)
-                    .toUpperCase()}
-                </span>
+                  name={a.user.fullName}
+                  avatarUrl={a.user.avatarUrl}
+                  size="sm"
+                  ringClassName="ring-2 ring-white"
+                />
               ))}
             </div>
           ) : null}
@@ -1021,7 +1070,7 @@ function BoardViewContent() {
               {board.tasksCount ?? 0} tasks
             </p>
             <div className="mt-1 flex items-center gap-2 text-[11px] text-bb-muted">
-              <span
+              {/* <span
                 className={`inline-block h-2 w-2 rounded-full ${
                   rtStatus === "connected"
                     ? "bg-emerald-500"
@@ -1029,15 +1078,17 @@ function BoardViewContent() {
                       ? "bg-amber-500"
                       : "bg-slate-400"
                 }`}
-              />
-              <span>
+              /> */}
+              {/* <span>
                 {rtStatus === "connected"
                   ? "Realtime connected"
                   : rtStatus === "reconnecting" || rtStatus === "connecting"
                     ? "Realtime reconnecting..."
                     : "Realtime offline"}
               </span>
-              {otherPresence.length > 0 ? <span>· {otherPresence.length} online</span> : null}
+              {activeBoardUsers.length > 0 ? (
+                <span>· {activeBoardUsers.length} online</span>
+              ) : null} */}
               {activeMeeting?.status === "ACTIVE" ? (
                 <span>· Meeting live ({activeParticipants.length})</span>
               ) : null}
@@ -1045,132 +1096,44 @@ function BoardViewContent() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {activeMeeting?.status === "ACTIVE" ? (
-            <>
-              {activeParticipants.length > 0 ? (
-                <div className="hidden items-center -space-x-1.5 sm:flex">
-                  {activeParticipants.slice(0, 4).map((participant) =>
-                    participant.avatar ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        key={participant.userId}
-                        src={participant.avatar}
-                        alt={participant.fullName}
-                        title={`${participant.fullName}${participant.isHost ? " (Host)" : ""}`}
-                        className="h-7 w-7 rounded-full object-cover ring-2 ring-white"
-                      />
-                    ) : (
-                      <span
-                        key={participant.userId}
-                        title={`${participant.fullName}${participant.isHost ? " (Host)" : ""}`}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-[10px] font-bold text-white ring-2 ring-white"
-                      >
-                        {participant.fullName
-                          .split(" ")
-                          .map((p) => p[0])
-                          .join("")
-                          .slice(0, 2)
-                          .toUpperCase()}
-                      </span>
-                    ),
-                  )}
-                </div>
-              ) : null}
-              {isInMeeting ? (
-                <button
-                  type="button"
-                  disabled={meetingBusy}
-                  aria-label="Leave meeting"
-                  title="Leave meeting"
-                  onClick={() => void onLeaveMeeting()}
-                  className={buttonClassName({
-                    variant: "secondary",
-                    size: "sm",
-                    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-                  })}
-                >
-                  <LogOut className="h-4 w-4" strokeWidth={2} aria-hidden />
-                  Leave
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={meetingBusy}
-                  aria-label="Join meeting"
-                  title="Join meeting"
-                  onClick={() => void onJoinMeeting()}
-                  className={buttonClassName({
-                    variant: "secondary",
-                    size: "sm",
-                    className: "border-bb-blue/30 bg-bb-sky text-bb-blue",
-                  })}
-                >
-                  <LogIn className="h-4 w-4" strokeWidth={2} aria-hidden />
-                  Join
-                </button>
-              )}
-              {isMeetingHost ? (
-                <button
-                  type="button"
-                  disabled={meetingBusy}
-                  aria-label="End meeting"
-                  title="End meeting for everyone"
-                  onClick={() => void onEndMeeting()}
-                  className={buttonClassName({
-                    variant: "secondary",
-                    size: "sm",
-                    className: "border-red-200 bg-red-50 text-red-700",
-                  })}
-                >
-                  <PhoneOff className="h-4 w-4" strokeWidth={2} aria-hidden />
-                  End
-                </button>
-              ) : null}
-            </>
-          ) : (
-            <button
-              type="button"
-              disabled={meetingBusy}
-              aria-label="Start meeting"
-              title="Start meeting"
-              onClick={() => void onStartMeeting()}
-              className={buttonClassName({
-                variant: "secondary",
-                size: "sm",
-                className: "border-bb-blue/30 bg-bb-sky text-bb-blue",
-              })}
-            >
-              <Video className="h-4 w-4" strokeWidth={2} aria-hidden />
-              Meet
-            </button>
-          )}
-          {otherPresence.length > 0 ? (
-            <div className="hidden items-center -space-x-1.5 sm:flex">
-              {otherPresence.slice(0, 4).map((member) =>
-                member.avatar ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    key={member.id}
-                    src={member.avatar}
-                    alt={member.fullName}
-                    title={member.fullName}
-                    className="h-7 w-7 rounded-full object-cover ring-2 ring-white"
-                  />
-                ) : (
-                  <span
-                    key={member.id}
-                    title={member.fullName}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-bb-blue text-[10px] font-bold text-white ring-2 ring-white"
-                  >
-                    {member.fullName
-                      .split(" ")
-                      .map((p) => p[0])
-                      .join("")
-                      .slice(0, 2)
-                      .toUpperCase()}
-                  </span>
-                ),
-              )}
+          {activeMeeting?.status === "ACTIVE" && activeParticipants.length > 0 ? (
+            <div className="hidden items-center -space-x-1.5 sm:flex" title="In meeting">
+              {activeParticipants.slice(0, 4).map((participant) => (
+                <UserAvatar
+                  key={participant.userId}
+                  name={participant.fullName}
+                  avatar={participant.avatar}
+                  size="md"
+                  title={`${participant.fullName}${participant.isHost ? " (Host)" : ""}`}
+                  ringClassName="ring-2 ring-emerald-200"
+                  fallbackClassName="bg-emerald-600 text-white"
+                />
+              ))}
+            </div>
+          ) : null}
+          {activeBoardUsers.length > 0 ? (
+            <div className="hidden items-center -space-x-1.5 sm:flex" title="On this board">
+              {activeBoardUsers.slice(0, 5).map((member) => (
+                <UserAvatar
+                  key={member.id}
+                  name={member.fullName}
+                  avatar={member.avatar}
+                  size="md"
+                  title={
+                    member.id === meId
+                      ? `${member.fullName} (You)`
+                      : member.fullName
+                  }
+                  ringClassName={
+                    member.id === meId ? "ring-2 ring-bb-blue" : "ring-2 ring-white"
+                  }
+                  fallbackClassName={
+                    member.id === meId
+                      ? "bg-bb-blue text-white"
+                      : "bg-slate-600 text-white"
+                  }
+                />
+              ))}
             </div>
           ) : null}
           {board.project?.workspaceId ? (
@@ -1505,7 +1468,22 @@ function BoardViewContent() {
               ? (userId, opts) => webrtc.requestForceMute(userId, opts)
               : undefined
           }
+          onUpdateAppearance={onUpdateMyAppearance}
+          onUploadBackground={onUploadMyBackground}
           onToggleMinimize={() => setCallMinimized((prev) => !prev)}
+        />
+      ) : null}
+      {!isInMeeting || callMinimized ? (
+        <MeetingFab
+          busy={meetingBusy}
+          hasActiveMeeting={activeMeeting?.status === "ACTIVE"}
+          isInMeeting={isInMeeting}
+          isHost={isMeetingHost}
+          participantCount={activeParticipants.length}
+          onStart={() => void onStartMeeting()}
+          onJoin={() => void onJoinMeeting()}
+          onLeave={() => void onLeaveMeeting()}
+          onEnd={isMeetingHost ? () => void onEndMeeting() : undefined}
         />
       ) : null}
     </div>
