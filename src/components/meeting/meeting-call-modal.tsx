@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Gamepad2,
   Image as ImageIcon,
   Maximize2,
   Mic,
@@ -29,6 +30,7 @@ import type {
   MeetingTileBgMode,
 } from "@/lib/realtime/events";
 import type { RemotePeer } from "@/hooks/use-meeting-webrtc";
+import { UnoGame, useUnoGame } from "@/features/uno";
 
 type ActiveScreenShare = {
   userId: string;
@@ -511,6 +513,7 @@ export function MeetingCallModal({
   onUploadBackground,
   onToggleMinimize,
 }: MeetingCallModalProps) {
+  const uno = useUnoGame(meId);
   const [splitRatio, setSplitRatio] = useState(0.62);
   const [dockPos, setDockPos] = useState({ x: 0, y: 0 });
   const [dockReady, setDockReady] = useState(false);
@@ -784,6 +787,23 @@ export function MeetingCallModal({
           </button>
           <button
             type="button"
+            onClick={() => {
+              if (uno.overlayOpen) return;
+              uno.openPicker();
+            }}
+            className={buttonClassName({
+              variant: "secondary",
+              size: "sm",
+              className: uno.overlayOpen
+                ? "border-emerald-300/40 bg-emerald-500/20 text-emerald-50"
+                : "border-white/20 bg-white/10 text-white hover:bg-white/20",
+            })}
+          >
+            <Gamepad2 className="h-4 w-4" aria-hidden />
+            Games
+          </button>
+          <button
+            type="button"
             onClick={() => void onLeave()}
             className={buttonClassName({
               variant: "secondary",
@@ -811,7 +831,65 @@ export function MeetingCallModal({
         </div>
       </div>
 
-      {activeScreenShare ? (
+      {uno.pendingInvite && !uno.overlayOpen ? (
+        <div className="flex items-center justify-between gap-3 border-b border-emerald-400/20 bg-emerald-500/15 px-4 py-2 text-sm text-white">
+          <p>You were invited to play UNO.</p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={uno.busy}
+              onClick={() => void uno.acceptInvite()}
+              className="rounded-md bg-white px-3 py-1 text-xs font-semibold text-bb-ink"
+            >
+              Join
+            </button>
+            <button
+              type="button"
+              onClick={uno.dismissInvite}
+              className="rounded-md border border-white/30 px-3 py-1 text-xs font-semibold"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {uno.pickerOpen && !uno.overlayOpen ? (
+        <div className="absolute right-4 top-16 z-20 w-56 overflow-hidden rounded-lg border border-white/15 bg-black/90 text-white shadow-lg">
+          <button
+            type="button"
+            disabled={uno.busy}
+            onClick={() => void uno.startFromMeeting(meeting.id)}
+            className="block w-full px-3 py-2.5 text-left text-sm font-semibold hover:bg-white/10 disabled:opacity-50"
+          >
+            UNO
+          </button>
+          <button
+            type="button"
+            onClick={() => uno.setPickerOpen(false)}
+            className="block w-full px-3 py-2 text-left text-xs text-white/60 hover:bg-white/10"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : null}
+
+      {uno.overlayOpen ? (
+        <div className="flex min-h-0 flex-1">
+          <div className="min-h-0 min-w-0 flex-1 p-3 pr-2">
+            <UnoGame
+              meId={meId}
+              participants={meeting.participants}
+              busy={uno.busy}
+              onLeaveGame={() => void uno.leaveGame()}
+              onInvite={(userIds) => void uno.inviteUsers(userIds)}
+            />
+          </div>
+          <div className="min-h-0 w-[220px] shrink-0 overflow-y-auto p-3 pl-0">
+            <div className="grid grid-cols-1 gap-2">{sidebarTiles}</div>
+          </div>
+        </div>
+      ) : activeScreenShare ? (
         <div ref={splitContainerRef} className="flex min-h-0 flex-1">
           <div
             className="min-h-0 p-3 pr-0"
