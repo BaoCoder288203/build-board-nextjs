@@ -1096,7 +1096,7 @@ function BoardViewContent() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {activeMeeting?.status === "ACTIVE" && activeParticipants.length > 0 ? (
+          {/* {activeMeeting?.status === "ACTIVE" && activeParticipants.length > 0 ? (
             <div className="hidden items-center -space-x-1.5 sm:flex" title="In meeting">
               {activeParticipants.slice(0, 4).map((participant) => (
                 <UserAvatar
@@ -1110,7 +1110,7 @@ function BoardViewContent() {
                 />
               ))}
             </div>
-          ) : null}
+          ) : null} */}
           {activeBoardUsers.length > 0 ? (
             <div className="hidden items-center -space-x-1.5 sm:flex" title="On this board">
               {activeBoardUsers.slice(0, 5).map((member) => (
