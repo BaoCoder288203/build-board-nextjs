@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { UNO_CARD_SIZE, UNO_WILD_GOLD } from "../constants/uno.constants";
+import { UNO_CARD_SIZE, UNO_OVAL_TILT, UNO_WILD_CONIC } from "../constants/uno.constants";
 import { setUnoAnchor } from "../motion/unoAnchors";
 import type { PublicCard, UnoColor } from "../types/card.types";
 import {
@@ -14,6 +14,7 @@ import {
 } from "../utils/cardUtils";
 import { CardGlyph } from "./UnoCardIcons";
 import { UnoCardBack } from "./UnoCardBack";
+import { UnoCardRim } from "./UnoCardRim";
 
 export function chosenColorDot(color: UnoColor | null) {
   if (!color) return "bg-white/40";
@@ -47,7 +48,6 @@ export function UnoCard({
   const wild = isWildCard(card);
   const theme = cardTheme(card.color);
   const clickable = Boolean(onClick);
-  const dimmed = variant === "hand" && !clickable;
 
   const bindRef = (el: HTMLElement | null) => {
     ref.current = el;
@@ -68,43 +68,29 @@ export function UnoCard({
 
   const size = UNO_CARD_SIZE[variant];
   const hoverable = clickable && variant === "hand";
-  const shell = `relative shrink-0 overflow-hidden rounded-[1.15rem] border-[3px] shadow-[0_8px_18px_rgba(0,0,0,0.35)] transition-[transform,opacity] duration-200 ease-out ${size} ${
-    wild ? "border-[#E8C547]" : "border-white/25"
-  } ${playable ? "z-[2] -translate-y-1.5" : ""} ${
-    selected ? "ring-2 ring-amber-300" : ""
-  } ${
+  const shell = `relative shrink-0 rounded-[1.15rem] shadow-[0_8px_18px_rgba(0,0,0,0.35)] transition-transform duration-200 ease-out ${size} ${
+    playable ? "z-[2] -translate-y-1.5" : ""
+  } ${selected ? "ring-2 ring-amber-300" : ""} ${
     hoverable
       ? "origin-bottom cursor-pointer hover:-translate-y-2 hover:scale-[1.07] active:scale-[0.97]"
       : "cursor-default"
-  } ${dimmed ? "opacity-60" : "opacity-100"} ${
-    lifted ? "-translate-y-2 scale-105 opacity-90" : ""
-  } ${className}`;
-  const faceStyle = {
-    ...cardFaceStyle(wild ? null : card.color),
-    boxShadow: wild
-      ? `0 0 0 2px ${UNO_WILD_GOLD}, 0 8px 18px rgba(0,0,0,0.4)`
-      : undefined,
-  };
+  } ${lifted ? "-translate-y-2 scale-105" : ""} ${className}`;
+  const faceStyle = cardFaceStyle(wild ? null : card.color);
 
   const inner = (
     <>
       <div
-        className="pointer-events-none absolute inset-[7%] rounded-[50%] border-[2.5px] border-white"
-        aria-hidden
-      />
-      <div
-        className="pointer-events-none absolute inset-[12%] flex items-center justify-center rounded-[50%] border-[2px] border-white bg-white"
+        className="pointer-events-none absolute inset-[8%] flex items-center justify-center"
         aria-hidden
       >
-        {wild ? (
-          <div
-            className="h-[78%] w-[62%] rounded-[50%]"
-            style={{
-              background:
-                "conic-gradient(#E8394B 0 90deg, #FFC93C 90deg 180deg, #3CB878 180deg 270deg, #3B82F6 270deg 360deg)",
-            }}
-          />
-        ) : null}
+        <div
+          className="relative h-[90%] w-[68%] overflow-hidden rounded-[50%] border-[2.5px] border-white bg-white"
+          style={{ transform: UNO_OVAL_TILT }}
+        >
+          {wild ? (
+            <div className="absolute inset-0" style={{ background: UNO_WILD_CONIC }} />
+          ) : null}
+        </div>
       </div>
       <span className="absolute left-[7%] top-[6%] z-[1] text-white">
         <CardGlyph card={card} className="h-3.5 w-3.5 text-[0.72rem]" />
@@ -115,17 +101,30 @@ export function UnoCard({
       {wild && card.value === "WILD" ? null : (
         <span
           className="relative z-[1] flex h-full items-center justify-center text-[1.85rem] font-black leading-none"
-          style={{
-            transform: "rotate(-15deg)",
-            color: wild ? "#111118" : theme?.ink ?? "#fff",
-          }}
+          style={
+            card.type === "NUMBER"
+              ? {
+                  color: theme?.from ?? "#111",
+                  textShadow: "2px 2px 0 #111, 3px 3px 0 #111",
+                }
+              : card.value === "WILD_DRAW_FOUR"
+                ? {
+                    color: "#fff",
+                    textShadow: "2px 2px 0 #111, 3px 3px 0 #111",
+                  }
+                : { color: theme?.from ?? "#111" }
+          }
         >
-          <CardGlyph
-            card={card}
-            className={
-              card.type === "NUMBER" ? "text-[1.85rem]" : "h-9 w-9 text-[1.6rem]"
-            }
-          />
+          {card.value === "WILD_DRAW_FOUR" ? (
+            <span className="text-[1.6rem]">+4</span>
+          ) : (
+            <CardGlyph
+              card={card}
+              className={
+                card.type === "NUMBER" ? "text-[1.85rem]" : "h-9 w-9 text-[1.6rem]"
+              }
+            />
+          )}
         </span>
       )}
     </>
@@ -141,9 +140,10 @@ export function UnoCard({
         aria-label={`${card.color ?? "wild"} ${cardLabel(card)}`}
         data-card-index={index}
         className={shell}
-        style={faceStyle}
       >
-        {inner}
+        <UnoCardRim variant={variant} faceStyle={faceStyle}>
+          {inner}
+        </UnoCardRim>
       </button>
     );
   }
@@ -154,9 +154,10 @@ export function UnoCard({
       aria-label={`${card.color ?? "wild"} ${cardLabel(card)}`}
       data-card-index={index}
       className={`${shell} pointer-events-none`}
-      style={faceStyle}
     >
-      {inner}
+      <UnoCardRim variant={variant} faceStyle={faceStyle}>
+        {inner}
+      </UnoCardRim>
     </div>
   );
 }

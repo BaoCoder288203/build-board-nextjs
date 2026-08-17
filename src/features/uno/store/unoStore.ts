@@ -40,27 +40,40 @@ export const useUnoStore = create<
   setError: (error) => set({ lastError: error }),
 
   applyRoom: (room) =>
-    set((state) => ({
-      room,
-      overlayOpen: true,
-      pendingInvite:
-        state.pendingInvite?.room.id === room.id ? null : state.pendingInvite,
-    })),
+    set((state) => {
+      const backToLobby = room.status === "WAITING" || room.status === "READY";
+      return {
+        room,
+        overlayOpen: true,
+        game: backToLobby ? null : state.game,
+        sequence: backToLobby ? 0 : state.sequence,
+        pendingInvite:
+          state.pendingInvite?.room.id === room.id ? null : state.pendingInvite,
+      };
+    }),
 
   applyGame: (game, sequence) =>
     set((state) => {
+      if (state.room?.status === "WAITING" || state.room?.status === "READY") {
+        return state;
+      }
       const nextSeq = sequence ?? game.sequence;
-      if (!shouldApply(state.sequence, nextSeq)) return state;
+      const sameGame = state.game?.gameId === game.gameId;
+      if (sameGame && !shouldApply(state.sequence, nextSeq)) return state;
       return { game, sequence: nextSeq, overlayOpen: true };
     }),
 
   applySnapshot: (snapshot) =>
-    set({
-      room: snapshot.room,
-      game: snapshot.game,
-      sequence: snapshot.sequence,
-      overlayOpen: true,
-      lastError: null,
+    set(() => {
+      const backToLobby =
+        snapshot.room.status === "WAITING" || snapshot.room.status === "READY";
+      return {
+        room: snapshot.room,
+        game: backToLobby ? null : snapshot.game,
+        sequence: backToLobby ? 0 : snapshot.sequence,
+        overlayOpen: true,
+        lastError: null,
+      };
     }),
 
   resetSession: () =>

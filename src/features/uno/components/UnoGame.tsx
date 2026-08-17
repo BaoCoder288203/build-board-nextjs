@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import type { MeetingParticipant } from "@/lib/realtime/events";
 import { UNO_MVP, UNO_TABLE } from "../constants/uno.constants";
 import type { PublicUnoRoom } from "../types/game.types";
@@ -11,6 +12,12 @@ import { unoActions } from "../hooks/useUnoActions";
 import { useUnoStore } from "../store/unoStore";
 import { useUnoSound } from "../sound/useUnoSound";
 import { unoFont } from "../unoFont";
+import { playUnoLobbyBurst } from "../scene/unoLobbyFx";
+
+const UnoLobbyScene = dynamic(
+  () => import("../scene/UnoLobbyScene").then((m) => m.UnoLobbyScene),
+  { ssr: false },
+);
 
 function Lobby({
   room,
@@ -27,8 +34,11 @@ function Lobby({
   busy: boolean;
   onInvite: (userIds: string[]) => void;
 }) {
+  const visiblePlayers = room.players.filter(
+    (p) => p.connectionStatus !== "LEFT" && p.connectionStatus !== "REMOVED",
+  );
   const seated = contestants(room);
-  const inRoom = new Set(room.players.map((p) => p.userId));
+  const inRoom = new Set(visiblePlayers.map((p) => p.userId));
   const inviteable = participants.filter(
     (p) => p.leftAt == null && !inRoom.has(p.userId),
   );
@@ -38,18 +48,27 @@ function Lobby({
     seated.length >= UNO_MVP.minPlayers;
 
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col gap-4 p-5 text-white">
+    <div className="relative flex h-full min-h-0 flex-col">
+      <UnoLobbyScene />
+      <div
+        className="pointer-events-none absolute inset-0 z-[1]"
+        style={{
+          background:
+            "radial-gradient(ellipse at center, transparent 42%, rgba(8,12,28,0.72) 100%)",
+        }}
+      />
+      <div className="relative z-10 mx-auto flex w-full max-w-md flex-col gap-4 p-5 text-white">
       <div>
-        <p className="text-lg font-black">UNO lobby</p>
+        <p className="text-lg font-black tracking-wide">UNO lobby</p>
         <p className="text-xs text-white/70">
           {seated.length}/{room.maxPlayers} players · {room.status}
         </p>
       </div>
       <ul className="space-y-2">
-        {room.players.map((p) => (
+        {visiblePlayers.map((p) => (
           <li
             key={p.playerId}
-            className="flex items-center justify-between rounded-lg bg-white/10 px-3 py-2 text-sm"
+            className="flex items-center justify-between rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm backdrop-blur-[2px]"
           >
             <span>
               {p.displayName}
@@ -92,7 +111,10 @@ function Lobby({
         <button
           type="button"
           disabled={busy}
-          onClick={() => void (meReady ? unoActions.unready() : unoActions.ready())}
+          onClick={() => {
+            playUnoLobbyBurst(meReady ? "#93C5FD" : "#34D399");
+            void (meReady ? unoActions.unready() : unoActions.ready());
+          }}
           className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-[#0F1B3C]"
         >
           {meReady ? "Unready" : "Ready"}
@@ -101,7 +123,10 @@ function Lobby({
           <button
             type="button"
             disabled={!canStart || busy}
-            onClick={() => void unoActions.start()}
+            onClick={() => {
+              playUnoLobbyBurst("#FDE68A", 0, 0.05);
+              void unoActions.start();
+            }}
             className="rounded-md bg-[#3B82F6] px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
           >
             Start game
@@ -109,6 +134,7 @@ function Lobby({
         ) : (
           <p className="self-center text-xs text-white/60">Waiting for the UNO host to start.</p>
         )}
+      </div>
       </div>
     </div>
   );

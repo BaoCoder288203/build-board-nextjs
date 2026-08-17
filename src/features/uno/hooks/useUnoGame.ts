@@ -86,11 +86,14 @@ export function useUnoGame(userId: string | null) {
   );
 
   const leaveGame = useCallback(async () => {
-    if (room) {
-      await unoActions.leave();
+    try {
+      if (room) {
+        await unoActions.leave();
+      }
+    } finally {
+      clearUnoFx();
+      resetSession();
     }
-    clearUnoFx();
-    resetSession();
   }, [resetSession, room]);
 
   return {

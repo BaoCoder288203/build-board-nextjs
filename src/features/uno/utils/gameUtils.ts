@@ -10,6 +10,7 @@ export function shouldShowPass(game: PlayerGameView | null, myPlayerId: string |
 
 export function roomPhase(room: PublicUnoRoom | null, game: PlayerGameView | null) {
   if (!room) return "idle" as const;
+  if (room.status === "WAITING" || room.status === "READY") return "lobby" as const;
   if (game && (game.status === "FINISHED" || game.status === "ABORTED")) {
     return "result" as const;
   }
