@@ -59,6 +59,11 @@ export const UNO_COLOR_THEME = {
 
 export const UNO_WILD_GOLD = "#E8C547";
 
+export const UNO_WILD_CONIC =
+  "conic-gradient(#E8394B 0 90deg, #FFC93C 90deg 180deg, #3CB878 180deg 270deg, #3B82F6 270deg 360deg)";
+
+export const UNO_OVAL_TILT = "rotate(18deg)";
+
 export const UNO_CARD_SIZE = {
   hand: "h-[6.75rem] w-[4.5rem]",
   pile: "h-[7.15rem] w-[4.75rem]",

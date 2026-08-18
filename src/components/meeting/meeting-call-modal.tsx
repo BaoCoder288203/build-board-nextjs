@@ -31,6 +31,8 @@ import type {
 } from "@/lib/realtime/events";
 import type { RemotePeer } from "@/hooks/use-meeting-webrtc";
 import { UnoGame, useUnoGame } from "@/features/uno";
+import { useUnoStore } from "@/features/uno/store/unoStore";
+import { clearUnoFx } from "@/features/uno/motion/unoFxBus";
 
 type ActiveScreenShare = {
   userId: string;
@@ -514,6 +516,24 @@ export function MeetingCallModal({
   onToggleMinimize,
 }: MeetingCallModalProps) {
   const uno = useUnoGame(meId);
+
+  useEffect(() => {
+    return () => {
+      clearUnoFx();
+      useUnoStore.getState().resetSession();
+    };
+  }, []);
+
+  const leaveCall = useCallback(async () => {
+    await uno.leaveGame();
+    await onLeave();
+  }, [onLeave, uno.leaveGame]);
+
+  const endCall = useCallback(async () => {
+    await uno.leaveGame();
+    await onEnd?.();
+  }, [onEnd, uno.leaveGame]);
+
   const [splitRatio, setSplitRatio] = useState(0.62);
   const [dockPos, setDockPos] = useState({ x: 0, y: 0 });
   const [dockReady, setDockReady] = useState(false);
@@ -804,7 +824,7 @@ export function MeetingCallModal({
           </button>
           <button
             type="button"
-            onClick={() => void onLeave()}
+            onClick={() => void leaveCall()}
             className={buttonClassName({
               variant: "secondary",
               size: "sm",
@@ -816,7 +836,7 @@ export function MeetingCallModal({
           {canEnd && onEnd ? (
             <button
               type="button"
-              onClick={() => void onEnd()}
+              onClick={() => void endCall()}
               className={buttonClassName({
                 variant: "secondary",
                 size: "sm",

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { UNO_OVAL_TILT, UNO_WILD_CONIC } from "../constants/uno.constants";
 import type { PublicCard } from "../types/card.types";
 
 function StrokeIcon({
@@ -50,20 +51,41 @@ export function ReverseIcon({ className = "h-[1em] w-[1em]" }: { className?: str
   );
 }
 
-export function DrawTwoIcon({ className = "h-[1em] w-[1em]" }: { className?: string }) {
+function DrawBadge({
+  label,
+  className = "h-[1em] w-[1em]",
+}: {
+  label: "+2" | "+4";
+  className?: string;
+}) {
   return (
-    <span className={`inline-flex items-center font-black leading-none ${className}`}>
-      +2
+    <span className={`relative inline-flex items-center justify-center ${className}`}>
+      <span
+        className="absolute left-1/2 top-1/2 h-[94%] w-[70%] rounded-[50%] border border-[#111]"
+        style={{
+          background: UNO_WILD_CONIC,
+          transform: `translate(-50%, -50%) ${UNO_OVAL_TILT}`,
+        }}
+      />
+      <span
+        className="relative z-[1] font-black leading-none text-white"
+        style={{
+          fontSize: "0.72em",
+          textShadow: "1px 1px 0 #111, 2px 2px 0 #111",
+        }}
+      >
+        {label}
+      </span>
     </span>
   );
 }
 
+export function DrawTwoIcon({ className = "h-[1em] w-[1em]" }: { className?: string }) {
+  return <DrawBadge label="+2" className={className} />;
+}
+
 export function WildFourIcon({ className = "h-[1em] w-[1em]" }: { className?: string }) {
-  return (
-    <span className={`inline-flex items-center font-black leading-none ${className}`}>
-      +4
-    </span>
-  );
+  return <DrawBadge label="+4" className={className} />;
 }
 
 export function WildPie({ className = "h-[1em] w-[1em]" }: { className?: string }) {

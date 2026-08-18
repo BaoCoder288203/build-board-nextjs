@@ -10,5 +10,12 @@ export function isUnoHost(room: PublicUnoRoom | null, userId: string | null) {
 }
 
 export function contestants(room: PublicUnoRoom | null) {
-  return room?.players.filter((p) => !p.isSpectator) ?? [];
+  return (
+    room?.players.filter(
+      (p) =>
+        !p.isSpectator &&
+        p.connectionStatus !== "LEFT" &&
+        p.connectionStatus !== "REMOVED",
+    ) ?? []
+  );
 }
