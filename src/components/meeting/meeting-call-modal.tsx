@@ -33,6 +33,8 @@ import type { RemotePeer } from "@/hooks/use-meeting-webrtc";
 import { UnoGame, useUnoGame } from "@/features/uno";
 import { useUnoStore } from "@/features/uno/store/unoStore";
 import { clearUnoFx } from "@/features/uno/motion/unoFxBus";
+import { ChessGame, useChessGame } from "@/features/chess";
+import { useChessStore } from "@/features/chess/store/chessStore";
 
 type ActiveScreenShare = {
   userId: string;
@@ -516,23 +518,49 @@ export function MeetingCallModal({
   onToggleMinimize,
 }: MeetingCallModalProps) {
   const uno = useUnoGame(meId);
+  const chess = useChessGame(meId);
+  const [gamesPickerOpen, setGamesPickerOpen] = useState(false);
+  const activeGame: "uno" | "chess" | null = chess.overlayOpen
+    ? "chess"
+    : uno.overlayOpen
+      ? "uno"
+      : null;
 
   useEffect(() => {
     return () => {
       clearUnoFx();
       useUnoStore.getState().resetSession();
+      useChessStore.getState().resetSession();
     };
   }, []);
 
   const leaveCall = useCallback(async () => {
-    await uno.leaveGame();
-    await onLeave();
-  }, [onLeave, uno.leaveGame]);
+    try {
+      await chess.leaveGame();
+    } finally {
+      try {
+        await uno.leaveGame();
+      } finally {
+        await onLeave();
+      }
+    }
+  }, [chess.leaveGame, onLeave, uno.leaveGame]);
 
   const endCall = useCallback(async () => {
-    await uno.leaveGame();
-    await onEnd?.();
-  }, [onEnd, uno.leaveGame]);
+    try {
+      await chess.leaveGame();
+    } finally {
+      try {
+        await uno.leaveGame();
+      } finally {
+        await onEnd?.();
+      }
+    }
+  }, [chess.leaveGame, onEnd, uno.leaveGame]);
+
+  useEffect(() => {
+    if (activeGame) setGamesPickerOpen(false);
+  }, [activeGame]);
 
   const [splitRatio, setSplitRatio] = useState(0.62);
   const [dockPos, setDockPos] = useState({ x: 0, y: 0 });
@@ -808,13 +836,13 @@ export function MeetingCallModal({
           <button
             type="button"
             onClick={() => {
-              if (uno.overlayOpen) return;
-              uno.openPicker();
+              if (activeGame) return;
+              setGamesPickerOpen((open) => !open);
             }}
             className={buttonClassName({
               variant: "secondary",
               size: "sm",
-              className: uno.overlayOpen
+              className: activeGame
                 ? "border-emerald-300/40 bg-emerald-500/20 text-emerald-50"
                 : "border-white/20 bg-white/10 text-white hover:bg-white/20",
             })}
@@ -851,7 +879,34 @@ export function MeetingCallModal({
         </div>
       </div>
 
-      {uno.pendingInvite && !uno.overlayOpen ? (
+      {chess.pendingInvite && !activeGame ? (
+        <div className="flex items-center justify-between gap-3 border-b border-emerald-400/20 bg-emerald-500/15 px-4 py-2 text-sm text-white">
+          <p>
+            {(meeting.participants.find((p) => p.userId === chess.pendingInvite?.invitedBy)
+              ?.fullName ?? "Someone")}{" "}
+            invited you to play Chess.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={chess.busy}
+              onClick={() => void chess.acceptInvite()}
+              className="rounded-md bg-white px-3 py-1 text-xs font-semibold text-bb-ink"
+            >
+              Join
+            </button>
+            <button
+              type="button"
+              onClick={chess.dismissInvite}
+              className="rounded-md border border-white/30 px-3 py-1 text-xs font-semibold"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {uno.pendingInvite && !activeGame && !chess.pendingInvite ? (
         <div className="flex items-center justify-between gap-3 border-b border-emerald-400/20 bg-emerald-500/15 px-4 py-2 text-sm text-white">
           <p>You were invited to play UNO.</p>
           <div className="flex gap-2">
@@ -874,19 +929,33 @@ export function MeetingCallModal({
         </div>
       ) : null}
 
-      {uno.pickerOpen && !uno.overlayOpen ? (
+      {gamesPickerOpen && !activeGame ? (
         <div className="absolute right-4 top-16 z-20 w-56 overflow-hidden rounded-lg border border-white/15 bg-black/90 text-white shadow-lg">
           <button
             type="button"
-            disabled={uno.busy}
-            onClick={() => void uno.startFromMeeting(meeting.id)}
+            disabled={uno.busy || chess.busy}
+            onClick={() => {
+              setGamesPickerOpen(false);
+              void uno.startFromMeeting(meeting.id);
+            }}
             className="block w-full px-3 py-2.5 text-left text-sm font-semibold hover:bg-white/10 disabled:opacity-50"
           >
             UNO
           </button>
           <button
             type="button"
-            onClick={() => uno.setPickerOpen(false)}
+            disabled={uno.busy || chess.busy}
+            onClick={() => {
+              setGamesPickerOpen(false);
+              void chess.startFromMeeting(meeting.id);
+            }}
+            className="block w-full px-3 py-2.5 text-left text-sm font-semibold hover:bg-white/10 disabled:opacity-50"
+          >
+            Chess
+          </button>
+          <button
+            type="button"
+            onClick={() => setGamesPickerOpen(false)}
             className="block w-full px-3 py-2 text-left text-xs text-white/60 hover:bg-white/10"
           >
             Cancel
@@ -894,7 +963,7 @@ export function MeetingCallModal({
         </div>
       ) : null}
 
-      {uno.overlayOpen ? (
+      {activeGame === "uno" ? (
         <div className="flex min-h-0 flex-1">
           <div className="min-h-0 min-w-0 flex-1 p-3 pr-2">
             <UnoGame
@@ -903,6 +972,21 @@ export function MeetingCallModal({
               busy={uno.busy}
               onLeaveGame={() => void uno.leaveGame()}
               onInvite={(userIds) => void uno.inviteUsers(userIds)}
+            />
+          </div>
+          <div className="min-h-0 w-[220px] shrink-0 overflow-y-auto p-3 pl-0">
+            <div className="grid grid-cols-1 gap-2">{sidebarTiles}</div>
+          </div>
+        </div>
+      ) : activeGame === "chess" ? (
+        <div className="flex min-h-0 flex-1">
+          <div className="min-h-0 min-w-0 flex-1 p-3 pr-2">
+            <ChessGame
+              meId={meId}
+              participants={meeting.participants}
+              busy={chess.busy}
+              onLeaveGame={() => void chess.leaveGame()}
+              onInvite={(userIds) => void chess.inviteUsers(userIds)}
             />
           </div>
           <div className="min-h-0 w-[220px] shrink-0 overflow-y-auto p-3 pl-0">
