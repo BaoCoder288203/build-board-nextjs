@@ -1,0 +1,9 @@
+Chess piece sprites in classic/ are Cburnett Staunton SVGs
+via Lichess (https://github.com/lichess-org/lila/tree/master/public/piece/cburnett).
+
+Original author: Cburnett
+License: CC BY-SA 3.0
+https://creativecommons.org/licenses/by-sa/3.0/
+
+Drop-in 3D PNG renders: replace the 12 files with same names
+(pawn.svg → pawn.png) and set CHESS_PIECE_EXT in pieceAssets.ts.
