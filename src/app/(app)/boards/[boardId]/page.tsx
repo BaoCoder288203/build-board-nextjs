@@ -14,6 +14,7 @@ import {
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Group as PanelGroup, Panel, Separator, useDefaultLayout, useGroupRef } from "react-resizable-panels";
 import {
   ColumnMenu,
   ColumnMenuTrigger,
@@ -23,6 +24,20 @@ import {
   type BoardCanvasHandle,
 } from "@/components/board/board-canvas-transition";
 import { SwitchBoardsBar } from "@/components/board/switch-boards-bar";
+import { BoardPlannerPanel } from "@/components/board/board-planner-panel";
+import {
+  readBoardPanes,
+  toggleBoardPane,
+  writeBoardPanes,
+  type BoardPaneId,
+  type BoardPaneState,
+} from "@/components/board/board-panes";
+import {
+  isUsableSplit,
+  layoutFromPanes,
+  PANE_MOTION,
+  useBoardPaneMotion,
+} from "@/components/board/board-pane-motion";
 import { TaskDetailModal } from "@/components/board/task-detail-modal";
 import { BoardActivityButton } from "@/components/activity/board-activity-button";
 import { BoardShareModal } from "@/components/board/board-share-modal";
@@ -53,6 +68,7 @@ import {
   type TaskMovedPayload,
   type TaskUpdatedPayload,
 } from "@/lib/realtime/events";
+import { GlobalSearchButton } from "@/components/search/global-search";
 import { UserAvatarMenu } from "@/components/user-avatar-menu";
 import { useAuthStore } from "@/stores/auth-store";
 import {
@@ -62,6 +78,7 @@ import {
 import { navigateWithCover } from "@/lib/route-cover";
 import { toastFromError, toastSuccess } from "@/lib/toast";
 import {
+  themeHeaderStyle,
   workspaceCanvasBackground,
   workspaceCanvasStyle,
   type ThemeColors,
@@ -160,6 +177,7 @@ function BoardViewContent() {
   const [focusAddCardFor, setFocusAddCardFor] = useState<string | null>(null);
   const [switchingBoard, setSwitchingBoard] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [panes, setPanes] = useState<BoardPaneState>(readBoardPanes);
   const [activeMeeting, setActiveMeeting] = useState<MeetingItem | null>(null);
   const [meetingBusy, setMeetingBusy] = useState(false);
   const [callMinimized, setCallMinimized] = useState(false);
@@ -170,6 +188,48 @@ function BoardViewContent() {
   const taskEventAtRef = useRef<Record<string, string>>({});
   const boardEventAtRef = useRef<string | null>(null);
   const meName = useAuthStore((s) => s.user?.fullName ?? "You");
+  const { defaultLayout: savedSplitLayout, onLayoutChanged } = useDefaultLayout({
+    id: `board-split-${boardId}`,
+    onlySaveAfterUserInteractions: true,
+    panelIds: ["planner", "board"],
+  });
+  const groupRef = useGroupRef();
+  const shellRef = useRef<HTMLDivElement>(null);
+  const themeRef = useRef<HTMLDivElement>(null);
+  const boardPanelElRef = useRef<HTMLDivElement>(null);
+  const {
+    layoutAnimating,
+    lastSplitRef,
+    syncThemeClip,
+    prepareMotion,
+    splitOpen,
+    noteLayout,
+  } =
+    useBoardPaneMotion({
+    panes,
+    boardId,
+    active: Boolean(board),
+    groupRef,
+    shellRef,
+    themeRef,
+    boardPanelRef: boardPanelElRef,
+    savedSplitLayout,
+  });
+  const splitDefaultLayout = useMemo(
+    () => {
+      const last =
+        isUsableSplit(savedSplitLayout) && savedSplitLayout
+          ? {
+              planner: savedSplitLayout.planner,
+              board: savedSplitLayout.board,
+            }
+          : lastSplitRef.current;
+      return layoutFromPanes(panes, last);
+    },
+    // Initial layout per board; pane toggles animate via setLayout.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [boardId, savedSplitLayout],
+  );
 
   const isInMeeting = useMemo(() => {
     if (!meId || !activeMeeting) return false;
@@ -345,7 +405,7 @@ function BoardViewContent() {
     // text/plain is readable on drop across Safari/Firefox; keep json as fallback.
     e.dataTransfer.setData("text/plain", raw);
     e.dataTransfer.setData("application/json", raw);
-    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.effectAllowed = "copyMove";
 
     const tasks = columns.find((c) => c.id === columnId)?.tasks ?? [];
     const idx = tasks.findIndex((t) => t.id === task.id);
@@ -458,7 +518,7 @@ function BoardViewContent() {
   }
 
   function applyTaskUpdate(updated: TaskCard) {
-    setSelected(updated);
+    setSelected((prev) => (prev?.id === updated.id ? updated : prev));
     setBoard((prev) => {
       if (!prev) return prev;
       return {
@@ -899,6 +959,25 @@ function BoardViewContent() {
     }
   }
 
+  function onTogglePane(pane: BoardPaneId) {
+    const next = toggleBoardPane(panes, pane);
+    if (next === panes) return;
+    prepareMotion();
+    writeBoardPanes(next);
+    setPanes(next);
+  }
+
+  function onOpenPlannerTask(task: TaskCard) {
+    if (task.boardId && task.boardId !== boardId) {
+      void onSwitchBoard(task.boardId);
+      return;
+    }
+    const found = board?.columns
+      .flatMap((column) => column.tasks ?? [])
+      .find((item) => item.id === task.id);
+    setSelected(found ?? task);
+  }
+
   function renderTaskList(column: BoardColumn) {
     const tasks = column.tasks ?? [];
     const isOver = drag?.overColumnId === column.id;
@@ -1032,6 +1111,24 @@ function BoardViewContent() {
     return nodes;
   }
 
+  const splitView = panes.planner && panes.board;
+  const immersiveBoard = panes.board && !panes.planner;
+  const splitSettled = splitOpen && !layoutAnimating;
+  const showSeparator = splitOpen;
+
+  function onSplitLayoutChanged(
+    layout: { [id: string]: number },
+    meta: { isUserInteraction: boolean },
+  ) {
+    onLayoutChanged(layout, meta);
+    if (isUsableSplit(layout)) {
+      lastSplitRef.current = {
+        planner: layout.planner,
+        board: layout.board,
+      };
+    }
+  }
+
   if (!board) {
     const switching = peekBoardSwitchPending();
     return (
@@ -1047,10 +1144,30 @@ function BoardViewContent() {
   }
 
   return (
-    <AppShell chrome="none" theme={workspaceTheme}>
-    <div className="flex min-h-screen flex-col" style={shellStyle}>
-      <header className="flex items-center justify-between gap-4 px-4 py-3 text-bb-ink">
-        <div className="flex min-w-0 items-center gap-3">
+    <AppShell chrome="none" theme={immersiveBoard ? workspaceTheme : null}>
+    <div
+      ref={shellRef}
+      className="relative flex h-dvh min-h-0 flex-col overflow-hidden bg-white"
+    >
+      <div
+        ref={themeRef}
+        aria-hidden
+        className="pointer-events-none absolute inset-0 z-0"
+        style={{ ...shellStyle, willChange: "clip-path" }}
+      />
+      <header
+        className={`relative z-20 flex shrink-0 items-center gap-3 border-b px-4 py-2.5 text-bb-ink transition-[border-color,background-color] duration-300 ${
+          splitView || !panes.board
+            ? "border-bb-border/80"
+            : "border-transparent"
+        }`}
+        style={
+          immersiveBoard
+            ? themeHeaderStyle(workspaceTheme, "strong")
+            : undefined
+        }
+      >
+        <div className="flex shrink-0 items-center">
           <Link
             href={`/projects/${board.projectId}`}
             className={buttonClassName({
@@ -1063,54 +1180,123 @@ function BoardViewContent() {
           >
             <ArrowLeft className="h-4 w-4" strokeWidth={2} aria-hidden />
           </Link>
-          <div className="min-w-0">
-            <h1 className="truncate text-lg font-bold">{board.name}</h1>
-            <p className="truncate text-xs text-bb-muted">
-              {board.project?.name ?? "Board"} · {board.columns.length} columns ·{" "}
-              {board.tasksCount ?? 0} tasks
-            </p>
-            <div className="mt-1 flex items-center gap-2 text-[11px] text-bb-muted">
-              {/* <span
-                className={`inline-block h-2 w-2 rounded-full ${
-                  rtStatus === "connected"
-                    ? "bg-emerald-500"
-                    : rtStatus === "reconnecting" || rtStatus === "connecting"
-                      ? "bg-amber-500"
-                      : "bg-slate-400"
-                }`}
-              /> */}
-              {/* <span>
-                {rtStatus === "connected"
-                  ? "Realtime connected"
-                  : rtStatus === "reconnecting" || rtStatus === "connecting"
-                    ? "Realtime reconnecting..."
-                    : "Realtime offline"}
-              </span>
-              {activeBoardUsers.length > 0 ? (
-                <span>· {activeBoardUsers.length} online</span>
-              ) : null} */}
-              {activeMeeting?.status === "ACTIVE" ? (
-                <span>· Meeting live ({activeParticipants.length})</span>
-              ) : null}
-            </div>
+        </div>
+        <div className="flex min-w-0 flex-1 justify-center">
+          <div className="w-full max-w-[28rem] sm:max-w-[40rem]">
+            <GlobalSearchButton
+              fullWidth
+              className={`transition-colors duration-300 ${
+                splitView || !panes.board ? "" : "border-white/50 bg-white/90"
+              }`}
+            />
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {/* {activeMeeting?.status === "ACTIVE" && activeParticipants.length > 0 ? (
-            <div className="hidden items-center -space-x-1.5 sm:flex" title="In meeting">
-              {activeParticipants.slice(0, 4).map((participant) => (
-                <UserAvatar
-                  key={participant.userId}
-                  name={participant.fullName}
-                  avatar={participant.avatar}
-                  size="md"
-                  title={`${participant.fullName}${participant.isHost ? " (Host)" : ""}`}
-                  ringClassName="ring-2 ring-emerald-200"
-                  fallbackClassName="bg-emerald-600 text-white"
+        <div className="flex shrink-0 items-center gap-2">
+          <NotificationBell />
+          <UserAvatarMenu />
+        </div>
+      </header>
+
+      <BoardCanvasTransition
+        ref={canvasRef}
+        boardId={boardId}
+        className="relative z-10 flex min-h-0 flex-1 flex-col"
+        coverBackground={workspaceCanvasBackground(workspaceTheme)}
+      >
+      <PanelGroup
+        orientation="horizontal"
+        id={`board-split-${boardId}`}
+        groupRef={groupRef}
+        defaultLayout={splitDefaultLayout}
+        onLayoutChange={(layout) => {
+          noteLayout(layout);
+          syncThemeClip();
+        }}
+        onLayoutChanged={onSplitLayoutChanged}
+        className="h-full min-h-0 flex-1"
+      >
+        <Panel
+          id="planner"
+          defaultSize={`${splitDefaultLayout.planner}%`}
+          minSize={splitSettled ? "320px" : 0}
+          className="min-h-0 overflow-hidden"
+        >
+            <div
+              className="h-full min-h-0 bg-white px-3 pb-2 pt-3"
+              inert={!panes.planner && !layoutAnimating ? true : undefined}
+            >
+              {board.project?.workspaceId &&
+              (panes.planner || layoutAnimating) ? (
+                <BoardPlannerPanel
+                  workspaceId={board.project.workspaceId}
+                  boardId={boardId}
+                  onOpenTask={onOpenPlannerTask}
+                  onTaskScheduled={applyTaskUpdate}
                 />
-              ))}
+              ) : board.project?.workspaceId ? null : (
+                <div className="flex h-full items-center justify-center rounded-xl border border-bb-border/80 bg-white text-sm text-bb-muted">
+                  Planner needs a workspace
+                </div>
+              )}
             </div>
-          ) : null} */}
+          </Panel>
+        <Separator
+          disabled={!splitSettled}
+          className={`group relative flex shrink-0 items-center justify-center bg-white transition-opacity duration-200 ${
+            showSeparator
+              ? "w-3 opacity-100"
+              : "pointer-events-none w-0 overflow-hidden opacity-0"
+          }`}
+          aria-label="Resize planner and board"
+        >
+            <span className="h-10 w-1.5 rounded-full bg-bb-border transition group-hover:bg-bb-blue group-active:bg-bb-blue" />
+          </Separator>
+        <Panel
+          id="board"
+          defaultSize={`${splitDefaultLayout.board}%`}
+          minSize={splitSettled ? "500px" : 0}
+          elementRef={boardPanelElRef}
+          className="min-h-0 overflow-hidden"
+        >
+      <div
+        className={`h-full min-h-0 bg-white transition-[padding] motion-reduce:transition-none ${
+          splitView ? "px-3 pb-2 pt-3" : "px-0 pb-0 pt-0"
+        }`}
+        style={{
+          transitionDuration: `${PANE_MOTION.duration}s`,
+          transitionTimingFunction: "cubic-bezier(0.7, 0, 0.3, 1)",
+        }}
+      >
+      <div
+        className={`flex h-full min-h-0 flex-col overflow-hidden transition-[border-radius,box-shadow] motion-reduce:transition-none ${
+          splitView
+            ? "rounded-xl shadow-[inset_0_0_0_1px_rgba(15,23,42,0.14)]"
+            : "rounded-none shadow-none"
+        }`}
+        style={{
+          ...shellStyle,
+          transitionDuration: `${PANE_MOTION.duration}s`,
+          transitionTimingFunction: "cubic-bezier(0.7, 0, 0.3, 1)",
+        }}
+        inert={!panes.board && !layoutAnimating ? true : undefined}
+      >
+      <div
+        className="flex shrink-0 items-center justify-between gap-3 px-4 py-2.5 text-bb-ink"
+        style={themeHeaderStyle(workspaceTheme, "soft")}
+      >
+        <div className="min-w-0">
+          <h1 className="truncate text-lg font-bold">{board.name}</h1>
+          <p className="truncate text-xs text-bb-muted">
+            {board.project?.name ?? "Board"} · {board.columns.length} columns ·{" "}
+            {board.tasksCount ?? 0} tasks
+          </p>
+          {activeMeeting?.status === "ACTIVE" ? (
+            <p className="mt-1 text-[11px] text-bb-muted">
+              Meeting live ({activeParticipants.length})
+            </p>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
           {activeBoardUsers.length > 0 ? (
             <div className="hidden items-center -space-x-1.5 sm:flex" title="On this board">
               {activeBoardUsers.slice(0, 5).map((member) => (
@@ -1146,7 +1332,7 @@ function BoardViewContent() {
                 className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border transition ${
                   shareOpen
                     ? "border-bb-blue bg-bb-sky text-bb-blue"
-                    : "border-bb-border bg-white text-bb-ink hover:bg-bb-sky"
+                    : "border-white/70 bg-white/90 text-bb-ink hover:bg-white"
                 }`}
               >
                 <Share2 className="h-4 w-4" strokeWidth={2} aria-hidden />
@@ -1158,18 +1344,9 @@ function BoardViewContent() {
               />
             </>
           ) : null}
-          <NotificationBell />
-          <UserAvatarMenu />
         </div>
-      </header>
-
-      <BoardCanvasTransition
-        ref={canvasRef}
-        boardId={boardId}
-        className="flex min-h-0 flex-1 flex-col"
-        coverBackground={workspaceCanvasBackground(workspaceTheme)}
-      >
-      <div className="flex flex-1 gap-3 overflow-x-auto px-4 pb-2">
+      </div>
+      <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto px-4 pb-2">
         {columns.map((column) => {
           const tasks = column.tasks ?? [];
           const isOver = drag?.overColumnId === column.id;
@@ -1342,11 +1519,17 @@ function BoardViewContent() {
           </button>
         </form>
       </div>
+      </div>
+      </div>
+          </Panel>
+      </PanelGroup>
 
       <SwitchBoardsBar
         currentBoardId={boardId}
         onSwitchBoard={(id) => void onSwitchBoard(id)}
         disabled={switchingBoard}
+        panes={panes}
+        onTogglePane={onTogglePane}
       />
       </BoardCanvasTransition>
       {selected && board ? (

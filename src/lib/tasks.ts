@@ -33,6 +33,7 @@ export type TaskCard = {
   description?: string | null;
   priority: TaskPriority;
   status: TaskStatus;
+  startDate?: string | null;
   dueDate?: string | null;
   isPinned?: boolean;
   isWatching?: boolean;
@@ -104,6 +105,7 @@ export async function updateTask(
     description?: string | null;
     priority?: TaskPriority;
     status?: TaskStatus;
+    startDate?: string | null;
     dueDate?: string | null;
   },
 ) {
