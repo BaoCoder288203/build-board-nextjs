@@ -1,11 +1,24 @@
 "use client";
 
-import { ChevronDown, Columns3, LayoutGrid } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
+import { CalendarDays, ChevronDown, Columns3, LayoutGrid } from "lucide-react";
+import {
+  forwardRef,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { fetchBoards, type BoardSummary } from "@/lib/projects";
 import { fetchProjects } from "@/lib/projects";
 import { fetchMyWorkspaces, type WorkspaceSummary } from "@/lib/workspaces";
 import { toastFromError } from "@/lib/toast";
+import { prefersReducedMotion } from "@/lib/board-transition";
+import type { BoardPaneId, BoardPaneState } from "./board-panes";
+import { PANE_MOTION } from "./board-pane-motion";
+
+gsap.registerPlugin(useGSAP);
 
 type WorkspaceBoards = {
   workspace: WorkspaceSummary;
@@ -17,17 +30,81 @@ type Props = {
   currentBoardId: string;
   onSwitchBoard: (boardId: string) => void;
   disabled?: boolean;
+  panes: BoardPaneState;
+  onTogglePane: (pane: BoardPaneId) => void;
 };
+
+function pillBox(
+  track: HTMLElement,
+  planner: HTMLElement,
+  board: HTMLElement,
+  panes: BoardPaneState,
+) {
+  const start = panes.planner ? planner : board;
+  const end = panes.board ? board : planner;
+  const t = track.getBoundingClientRect();
+  const a = start.getBoundingClientRect();
+  const b = end.getBoundingClientRect();
+  return {
+    x: a.left - t.left,
+    width: Math.max(0, b.right - a.left),
+  };
+}
 
 export function SwitchBoardsBar({
   currentBoardId,
   onSwitchBoard,
   disabled,
+  panes,
+  onTogglePane,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [groups, setGroups] = useState<WorkspaceBoards[]>([]);
   const panelRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const pillRef = useRef<HTMLSpanElement>(null);
+  const plannerRef = useRef<HTMLButtonElement>(null);
+  const boardRef = useRef<HTMLButtonElement>(null);
+  const pillReady = useRef(false);
+
+  useGSAP(
+    () => {
+      const track = trackRef.current;
+      const pill = pillRef.current;
+      const planner = plannerRef.current;
+      const board = boardRef.current;
+      if (!track || !pill || !planner || !board) return;
+
+      const apply = (animate: boolean) => {
+        const box = pillBox(track, planner, board, panes);
+        const reduced = prefersReducedMotion() || !animate;
+        if (reduced) {
+          gsap.set(pill, { x: box.x, width: box.width, force3D: true });
+          return;
+        }
+        gsap.to(pill, {
+          x: box.x,
+          width: box.width,
+          duration: PANE_MOTION.duration,
+          ease: PANE_MOTION.ease,
+          force3D: true,
+          overwrite: "auto",
+        });
+      };
+
+      apply(pillReady.current);
+      pillReady.current = true;
+
+      const observer = new ResizeObserver(() => apply(false));
+      observer.observe(track);
+      observer.observe(planner);
+      observer.observe(board);
+
+      return () => observer.disconnect();
+    },
+    { dependencies: [panes.planner, panes.board], scope: trackRef },
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -80,12 +157,31 @@ export function SwitchBoardsBar({
   }
 
   return (
-    <div className="relative flex justify-center pb-5 pt-1" ref={panelRef}>
+    <div className="relative z-20 flex justify-center pb-5 pt-1" ref={panelRef}>
       <div className="inline-flex items-center rounded-full border border-bb-border/80 bg-white px-1 py-1 shadow-bb">
-        <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold text-bb-ink">
-          <Columns3 className="h-4 w-4 text-bb-muted" aria-hidden />
-          Board
-        </span>
+        <div ref={trackRef} className="relative inline-flex">
+          <span
+            ref={pillRef}
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 left-0 z-0 rounded-full bg-bb-sky"
+          />
+          <PaneToggle
+            ref={plannerRef}
+            pressed={panes.planner}
+            disabled={disabled || (panes.planner && !panes.board)}
+            onClick={() => onTogglePane("planner")}
+            icon={<CalendarDays className="h-4 w-4" aria-hidden />}
+            label="Planner"
+          />
+          <PaneToggle
+            ref={boardRef}
+            pressed={panes.board}
+            disabled={disabled || (panes.board && !panes.planner)}
+            onClick={() => onTogglePane("board")}
+            icon={<Columns3 className="h-4 w-4" aria-hidden />}
+            label="Board"
+          />
+        </div>
         <span className="mx-0.5 h-5 w-px bg-bb-border" aria-hidden />
         <button
           type="button"
@@ -174,3 +270,32 @@ export function SwitchBoardsBar({
     </div>
   );
 }
+
+const PaneToggle = forwardRef<
+  HTMLButtonElement,
+  {
+    pressed: boolean;
+    disabled?: boolean;
+    onClick: () => void;
+    icon: ReactNode;
+    label: string;
+  }
+>(function PaneToggle({ pressed, disabled, onClick, icon, label }, ref) {
+  return (
+    <button
+      ref={ref}
+      type="button"
+      aria-pressed={pressed}
+      disabled={disabled}
+      onClick={onClick}
+      className={`relative z-10 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold transition-colors duration-200 disabled:cursor-default ${
+        pressed
+          ? "text-bb-blue"
+          : "text-bb-ink hover:bg-bb-sky/60"
+      }`}
+    >
+      <span className={pressed ? "text-bb-blue" : "text-bb-muted"}>{icon}</span>
+      {label}
+    </button>
+  );
+});

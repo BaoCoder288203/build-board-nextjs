@@ -127,13 +127,7 @@ export function AppShellProvider({ children }: { children: ReactNode }) {
             </main>
           </>
         ) : (
-          <>
-            {/* ⌘K still available on board chrome */}
-            <div className="sr-only">
-              <GlobalSearchButton />
-            </div>
-            {children}
-          </>
+          children
         )}
       </div>
     </AppShellContext.Provider>

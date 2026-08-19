@@ -145,7 +145,15 @@ function hitSubtitle(hit: FlatHit): string {
   }
 }
 
-export function GlobalSearchButton() {
+export function GlobalSearchButton({
+  className = "",
+  bindShortcut = true,
+  fullWidth = false,
+}: {
+  className?: string;
+  bindShortcut?: boolean;
+  fullWidth?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [origin, setOrigin] = useState<OriginRect | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -156,6 +164,7 @@ export function GlobalSearchButton() {
   }, []);
 
   useEffect(() => {
+    if (!bindShortcut) return;
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -164,7 +173,7 @@ export function GlobalSearchButton() {
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [openSearch]);
+  }, [openSearch, bindShortcut]);
 
   return (
     <>
@@ -172,11 +181,15 @@ export function GlobalSearchButton() {
         ref={triggerRef}
         type="button"
         onClick={openSearch}
-        className="inline-flex h-9 items-center gap-2 rounded-lg border border-bb-border/80 bg-bb-surface px-2.5 text-sm text-bb-muted transition hover:border-bb-blue hover:text-bb-blue sm:min-w-[180px] sm:px-3"
+        className={`inline-flex h-9 items-center gap-2 rounded-lg border border-bb-border/80 bg-bb-surface px-2.5 text-sm text-bb-muted transition hover:border-bb-blue hover:text-bb-blue sm:px-3 ${
+          fullWidth ? "w-full min-w-0" : "sm:min-w-[180px]"
+        } ${className}`}
         aria-label="Search"
       >
         <Search className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-        <span className="hidden sm:inline">Search…</span>
+        <span className={fullWidth ? "truncate" : "hidden sm:inline"}>
+          Search…
+        </span>
         <kbd className="ml-auto hidden rounded border border-bb-border bg-bb-sky px-1.5 py-0.5 text-[10px] font-semibold text-bb-muted sm:inline">
           ⌘K
         </kbd>
