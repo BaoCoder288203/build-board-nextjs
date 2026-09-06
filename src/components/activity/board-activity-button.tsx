@@ -117,7 +117,7 @@ export function BoardActivityButton({
       </button>
 
       {open ? (
-        <div className="absolute right-0 z-50 mt-1 w-[min(100vw-2rem,380px)] overflow-hidden rounded-xl border border-bb-border bg-white shadow-bb-lg">
+        <div className="absolute right-0 z-50 mt-2 w-[min(100vw-2rem,380px)] overflow-hidden rounded-xl border border-bb-border bg-white shadow-bb-lg">
           <div className="border-b border-bb-border px-4 py-3">
             <p className="text-sm font-bold text-bb-ink">Activity</p>
             <p className="text-xs text-bb-muted">Recent board history</p>
