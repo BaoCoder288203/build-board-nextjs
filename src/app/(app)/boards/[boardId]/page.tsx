@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Archive,
   ArrowLeft,
   Calendar,
   CheckSquare,
@@ -9,7 +10,7 @@ import {
   Paperclip,
   Pin,
   Plus,
-  Share2,
+  UserRoundPlus,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -23,6 +24,7 @@ import {
   BoardCanvasTransition,
   type BoardCanvasHandle,
 } from "@/components/board/board-canvas-transition";
+import { BoardMoreMenu } from "@/components/board/board-more-menu";
 import { SwitchBoardsBar } from "@/components/board/switch-boards-bar";
 import { BoardPlannerPanel } from "@/components/board/board-planner-panel";
 import {
@@ -38,6 +40,7 @@ import {
   PANE_MOTION,
   useBoardPaneMotion,
 } from "@/components/board/board-pane-motion";
+import { TaskDoneCheckbox } from "@/components/board/task-done-checkbox";
 import { TaskDetailModal } from "@/components/board/task-detail-modal";
 import { BoardActivityButton } from "@/components/activity/board-activity-button";
 import { BoardShareModal } from "@/components/board/board-share-modal";
@@ -104,9 +107,12 @@ import {
   createTask,
   deleteTask,
   moveTask,
+  restoreTask,
+  updateTask,
   type TaskCard,
   type TaskPriority,
 } from "@/lib/tasks";
+import { toast } from "sonner";
 import { useRealtimeStore } from "@/stores/realtime-store";
 import {
   endMeeting,
@@ -187,6 +193,10 @@ function BoardViewContent() {
   const boardRef = useRef<BoardDetail | null>(null);
   const taskEventAtRef = useRef<Record<string, string>>({});
   const boardEventAtRef = useRef<string | null>(null);
+  const undoArchiveRef = useRef<{
+    task: TaskCard;
+    toastId: string | number;
+  } | null>(null);
   const meName = useAuthStore((s) => s.user?.fullName ?? "You");
   const { defaultLayout: savedSplitLayout, onLayoutChanged } = useDefaultLayout({
     id: `board-split-${boardId}`,
@@ -532,6 +542,71 @@ function BoardViewContent() {
       };
     });
   }
+
+  async function onToggleTaskDone(task: TaskCard) {
+    const next = task.status === "DONE" ? "TODO" : "DONE";
+    try {
+      const updated = await updateTask(task.id, { status: next });
+      applyTaskUpdate(updated);
+    } catch (error) {
+      toastFromError(error);
+    }
+  }
+
+  const undoArchiveTask = useCallback(async () => {
+    const pending = undoArchiveRef.current;
+    if (!pending) return;
+    undoArchiveRef.current = null;
+    toast.dismiss(pending.toastId);
+    try {
+      const restored = await restoreTask(pending.task.id);
+      applyTaskCreated(restored);
+      toastSuccess("Card restored");
+    } catch (error) {
+      toastFromError(error);
+    }
+  }, []);
+
+  async function onArchiveTask(task: TaskCard) {
+    try {
+      await deleteTask(task.id);
+      applyTaskDeleted(task.id);
+      const toastId = toast.message(`Archived “${task.title}”`, {
+        description: "Press Z to restore",
+        duration: 10_000,
+        action: {
+          label: "Restore",
+          onClick: () => {
+            void undoArchiveTask();
+          },
+        },
+      });
+      undoArchiveRef.current = { task, toastId };
+    } catch (error) {
+      toastFromError(error);
+    }
+  }
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "z" && e.key !== "Z") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (!undoArchiveRef.current) return;
+      e.preventDefault();
+      void undoArchiveTask();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [undoArchiveTask]);
 
   function applyTaskCreated(task: TaskCard) {
     setBoard((prev) => {
@@ -998,6 +1073,16 @@ function BoardViewContent() {
 
     const nodes: React.ReactNode[] = [];
 
+    if (isOver && tasks.length === 0) {
+      nodes.push(
+        <div
+          key={`slot-${column.id}-empty`}
+          className="h-[52px] rounded-lg border-2 border-dashed border-bb-blue/50 bg-bb-blue/10"
+        />,
+      );
+      return nodes;
+    }
+
     for (let i = 0; i <= tasks.length; i += 1) {
       if (isOver && insertIndex === i) {
         nodes.push(
@@ -1022,7 +1107,7 @@ function BoardViewContent() {
           onClick={() => {
             if (!dragRef.current) setSelected(task);
           }}
-          className={`cursor-grab rounded-lg border border-transparent bg-white px-3 py-2.5 shadow-sm transition hover:border-bb-blue/40 active:cursor-grabbing ${
+          className={`group/card cursor-grab rounded-lg border border-transparent bg-white px-3 py-2.5 shadow-sm transition hover:border-bb-blue/40 active:cursor-grabbing ${
             isDragging ? "opacity-40 ring-2 ring-bb-blue/30" : ""
           }`}
         >
@@ -1038,72 +1123,113 @@ function BoardViewContent() {
               ))}
             </div>
           ) : null}
-          <p className="text-sm font-semibold text-bb-ink">{task.title}</p>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-semibold text-bb-muted">
-              {task.code}
-            </span>
+          <div className="flex min-w-0 items-center">
             <span
-              className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${PRIORITY_STYLE[task.priority]}`}
+              className={`shrink-0 overflow-visible transition-[width,opacity,margin] duration-150 ease-out ${
+                task.status === "DONE"
+                  ? "pointer-events-auto mr-1.5 w-4 opacity-100"
+                  : "pointer-events-none w-0 opacity-0 group-hover/card:pointer-events-auto group-hover/card:mr-1.5 group-hover/card:w-4 group-hover/card:opacity-100"
+              }`}
             >
-              {task.priority}
+              <TaskDoneCheckbox
+                done={task.status === "DONE"}
+                onToggle={() => void onToggleTaskDone(task)}
+              />
             </span>
-            {task.dueDate ? (
-              <span className="inline-flex items-center gap-1 text-[11px] text-bb-muted">
-                <Calendar className="h-3 w-3" aria-hidden />
-                {new Date(task.dueDate).toLocaleDateString()}
-              </span>
-            ) : null}
-            {task.checklistProgress && task.checklistProgress.total > 0 ? (
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-bb-muted">
-                <CheckSquare className="h-3 w-3" aria-hidden />
-                {task.checklistProgress.completed}/{task.checklistProgress.total}
-              </span>
-            ) : null}
-            {(task.commentsCount ?? 0) > 0 ? (
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-bb-muted">
-                <MessageSquare className="h-3 w-3" aria-hidden />
-                {task.commentsCount}
-              </span>
-            ) : null}
-            {(task.attachmentsCount ?? 0) > 0 ? (
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-bb-muted">
-                <Paperclip className="h-3 w-3" aria-hidden />
-                {task.attachmentsCount}
-              </span>
-            ) : null}
-            {task.isPinned ? (
-              <span
-                title="Pinned"
-                className="inline-flex text-amber-700"
-                aria-label="Pinned"
-              >
-                <Pin className="h-3.5 w-3.5" aria-hidden />
-              </span>
-            ) : null}
-            {task.isWatching ? (
-              <span
-                title="Watching"
-                className="inline-flex text-bb-blue"
-                aria-label="Watching"
-              >
-                <Eye className="h-3.5 w-3.5" aria-hidden />
-              </span>
-            ) : null}
+            <p
+              className={`min-w-0 flex-1 text-sm font-semibold transition-colors ${
+                task.status === "DONE"
+                  ? "text-bb-muted line-through"
+                  : "text-bb-ink"
+              }`}
+            >
+              {task.title}
+            </p>
           </div>
-          {task.assignees.length > 0 ? (
-            <div className="mt-2 flex -space-x-1.5">
-              {task.assignees.slice(0, 3).map((a) => (
-                <UserAvatar
-                  key={a.workspaceMemberId}
-                  name={a.user.fullName}
-                  avatarUrl={a.user.avatarUrl}
-                  size="sm"
-                  ringClassName="ring-2 ring-white"
-                />
-              ))}
+          <div className="mt-2 flex items-end justify-between gap-2">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-bb-muted">
+                {task.code}
+              </span>
+              <span
+                className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${PRIORITY_STYLE[task.priority]}`}
+              >
+                {task.priority}
+              </span>
+              {task.dueDate ? (
+                <span className="inline-flex items-center gap-1 text-[11px] text-bb-muted">
+                  <Calendar className="h-3 w-3" aria-hidden />
+                  {new Date(task.dueDate).toLocaleDateString()}
+                </span>
+              ) : null}
+              {task.checklistProgress && task.checklistProgress.total > 0 ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-bb-muted">
+                  <CheckSquare className="h-3 w-3" aria-hidden />
+                  {task.checklistProgress.completed}/
+                  {task.checklistProgress.total}
+                </span>
+              ) : null}
+              {(task.commentsCount ?? 0) > 0 ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-bb-muted">
+                  <MessageSquare className="h-3 w-3" aria-hidden />
+                  {task.commentsCount}
+                </span>
+              ) : null}
+              {(task.attachmentsCount ?? 0) > 0 ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-bb-muted">
+                  <Paperclip className="h-3 w-3" aria-hidden />
+                  {task.attachmentsCount}
+                </span>
+              ) : null}
+              {task.isPinned ? (
+                <span
+                  title="Pinned"
+                  className="inline-flex text-amber-700"
+                  aria-label="Pinned"
+                >
+                  <Pin className="h-3.5 w-3.5" aria-hidden />
+                </span>
+              ) : null}
+              {task.isWatching ? (
+                <span
+                  title="Watching"
+                  className="inline-flex text-bb-blue"
+                  aria-label="Watching"
+                >
+                  <Eye className="h-3.5 w-3.5" aria-hidden />
+                </span>
+              ) : null}
             </div>
-          ) : null}
+            <div className="flex flex-col shrink-0 justify-end items-end gap-1.5">
+              <button
+                type="button"
+                aria-label="Archive card"
+                title="Archive"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void onArchiveTask(task);
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="pointer-events-none inline-flex h-7 w-7 items-center justify-center rounded-md text-bb-muted opacity-0 transition group-hover/card:pointer-events-auto group-hover/card:opacity-100 hover:bg-black/5 hover:text-bb-ink"
+              >
+                <Archive className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+              </button>
+              {task.assignees.length > 0 ? (
+                <div className="flex -space-x-1.5">
+                  {task.assignees.slice(0, 3).map((a) => (
+                    <UserAvatar
+                      key={a.workspaceMemberId}
+                      name={a.user.fullName}
+                      avatarUrl={a.user.avatarUrl}
+                      size="sm"
+                      ringClassName="ring-2 ring-white"
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
         </article>,
       );
     }
@@ -1156,7 +1282,7 @@ function BoardViewContent() {
         style={{ ...shellStyle, willChange: "clip-path" }}
       />
       <header
-        className={`relative z-20 flex shrink-0 items-center gap-3 border-b px-4 py-2.5 text-bb-ink transition-[border-color,background-color] duration-300 ${
+        className={`relative z-20 flex shrink-0 items-center gap-3 border-b px-1 py-1 text-bb-ink transition-[border-color,background-color] duration-300 ${
           splitView || !panes.board
             ? "border-bb-border/80"
             : "border-transparent"
@@ -1324,6 +1450,11 @@ function BoardViewContent() {
           ) : null}
           {board.project?.workspaceId ? (
             <>
+              <BoardActivityButton
+                workspaceId={board.project.workspaceId}
+                boardId={boardId}
+                projectId={board.projectId}
+              />
               <button
                 type="button"
                 aria-label="Share board"
@@ -1332,21 +1463,20 @@ function BoardViewContent() {
                 className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border transition ${
                   shareOpen
                     ? "border-bb-blue bg-bb-sky text-bb-blue"
-                    : "border-white/70 bg-white/90 text-bb-ink hover:bg-white"
+                    : "border-bb-border bg-white text-bb-ink hover:bg-bb-sky"
                 }`}
               >
-                <Share2 className="h-4 w-4" strokeWidth={2} aria-hidden />
+                <UserRoundPlus className="h-4 w-4" strokeWidth={2} aria-hidden />
               </button>
-              <BoardActivityButton
-                workspaceId={board.project.workspaceId}
+              <BoardMoreMenu
                 boardId={boardId}
-                projectId={board.projectId}
+                onRestored={(task) => applyTaskCreated(task)}
               />
             </>
           ) : null}
         </div>
       </div>
-      <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto px-4 pb-2">
+      <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-4 pb-2">
         {columns.map((column) => {
           const tasks = column.tasks ?? [];
           const isOver = drag?.overColumnId === column.id;
@@ -1354,9 +1484,11 @@ function BoardViewContent() {
             <section
               key={column.id}
               data-board-column="true"
-              className={`relative flex h-fit w-72 shrink-0 flex-col rounded-xl bg-[#F1F2F4] shadow-bb ${
+              className={`relative flex h-fit w-62 shrink-0 flex-col rounded-xl bg-[#F1F2F4] shadow-bb ${
                 isOver ? "ring-2 ring-bb-blue/50" : ""
               }`}
+              onDragOver={(e) => onDragOverList(e, column)}
+              onDrop={(e) => void onDropOnList(e, column)}
             >
               <div className="relative flex items-center gap-1 px-2 py-2">
                 {editingColumnId === column.id ? (
@@ -1386,7 +1518,7 @@ function BoardViewContent() {
                     {column.name}
                   </button>
                 )}
-                <span className="rounded-md bg-black/5 px-2 py-0.5 text-xs font-semibold text-bb-muted">
+                <span className="rounded-md px-2 py-0.5 text-xs font-semibold text-bb-muted">
                   {tasks.length}
                 </span>
                 <ColumnMenuTrigger
@@ -1451,15 +1583,11 @@ function BoardViewContent() {
                 ) : null}
               </div>
 
-              <div
-                className="flex max-h-[calc(100vh-14rem)] flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2"
-                onDragOver={(e) => onDragOverList(e, column)}
-                onDrop={(e) => void onDropOnList(e, column)}
-              >
+              <div className="flex max-h-[calc(100vh-14rem)] flex-1 flex-col gap-2 overflow-y-auto px-2">
                 {renderTaskList(column)}
               </div>
 
-              <div className="space-y-2 border-t border-black/5 px-2 py-2">
+              <div className="space-y-2 px-2 py-2">
                 <Input
                   ref={(el: HTMLInputElement | null) => {
                     addCardRefs.current[column.id] = el;

@@ -117,6 +117,16 @@ export async function deleteTask(taskId: string) {
   await api.delete(`/tasks/${taskId}`);
 }
 
+export async function restoreTask(taskId: string) {
+  const { data } = await api.post(`/tasks/${taskId}/restore`);
+  return data.data as TaskCard;
+}
+
+export async function fetchArchivedTasks(boardId: string) {
+  const { data } = await api.get("/tasks/archived", { params: { boardId } });
+  return data.data as { items: TaskCard[] };
+}
+
 export async function moveTask(
   taskId: string,
   input: {

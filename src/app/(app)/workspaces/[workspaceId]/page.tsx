@@ -1,12 +1,8 @@
 "use client";
 
 import {
-  Archive,
   ArrowLeft,
-  CalendarDays,
   ChevronDown,
-  Clock3,
-  History,
   LayoutDashboard,
   LogOut,
   Plus,
@@ -343,30 +339,6 @@ function WorkspaceDetailContent() {
           label="Dashboard"
         >
           <LayoutDashboard className="h-4 w-4" strokeWidth={2} aria-hidden />
-        </ExpandNavLink>
-        <ExpandNavLink
-          href={`/workspaces/${workspaceId}/archived`}
-          label="Archived"
-        >
-          <Archive className="h-4 w-4" strokeWidth={2} aria-hidden />
-        </ExpandNavLink>
-        <ExpandNavLink
-          href={`/workspaces/${workspaceId}/activity`}
-          label="Activity"
-        >
-          <History className="h-4 w-4" strokeWidth={2} aria-hidden />
-        </ExpandNavLink>
-        <ExpandNavLink
-          href={`/workspaces/${workspaceId}/calendar`}
-          label="Calendar"
-        >
-          <CalendarDays className="h-4 w-4" strokeWidth={2} aria-hidden />
-        </ExpandNavLink>
-        <ExpandNavLink
-          href={`/workspaces/${workspaceId}/timeline`}
-          label="Timeline"
-        >
-          <Clock3 className="h-4 w-4" strokeWidth={2} aria-hidden />
         </ExpandNavLink>
         {!workspace.myMembership?.isOwner ? (
           <Button

@@ -26,6 +26,7 @@ import { TaskAssigneesPanel } from "@/components/board/task-assignees-panel";
 import { TaskAttachmentPanel } from "@/components/board/task-attachment-panel";
 import { TaskChecklistPanel } from "@/components/board/task-checklist-panel";
 import { TaskCommentPanel } from "@/components/board/task-comment-panel";
+import { TaskDoneCheckbox } from "@/components/board/task-done-checkbox";
 import { TaskLabelsPanel } from "@/components/board/task-labels-panel";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -171,7 +172,7 @@ export function TaskDetailModal({
   const [addingChecklist, setAddingChecklist] = useState(false);
   const [checklistKey, setChecklistKey] = useState(0);
   const [attachmentKey, setAttachmentKey] = useState(0);
-  const [actionBusy, setActionBusy] = useState<"watch" | "pin" | "duplicate" | null>(null);
+  const [actionBusy, setActionBusy] = useState<"watch" | "pin" | "duplicate" | "done" | null>(null);
 
   useEffect(() => {
     setTitle(task.title);
@@ -266,6 +267,20 @@ export function TaskDetailModal({
       const updated = await pinTask(task.id, !task.isPinned);
       onChange(updated);
       toastSuccess(updated.isPinned ? "Task pinned" : "Task unpinned");
+    } catch (error) {
+      toastFromError(error);
+    } finally {
+      setActionBusy(null);
+    }
+  }
+
+  async function onToggleDone() {
+    setActionBusy("done");
+    try {
+      const next = task.status === "DONE" ? "TODO" : "DONE";
+      const updated = await updateTask(task.id, { status: next });
+      onChange(updated);
+      toastSuccess(next === "DONE" ? "Marked as done" : "Marked as not done");
     } catch (error) {
       toastFromError(error);
     } finally {
@@ -369,16 +384,25 @@ export function TaskDetailModal({
           {/* Left: main */}
           <div className="min-h-0 overflow-y-auto px-5 py-4">
             <form id="task-detail-form" onSubmit={onSave} className="space-y-4">
-              <label className="block text-sm font-semibold text-bb-ink">
-                Title
-                <Input
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  required
-                  minLength={3}
-                  className="mt-1.5"
-                />
-              </label>
+              <div>
+                <p className="text-sm font-semibold text-bb-ink">Title</p>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <TaskDoneCheckbox
+                    done={task.status === "DONE"}
+                    size="md"
+                    disabled={actionBusy === "done"}
+                    onToggle={() => void onToggleDone()}
+                  />
+                  <Input
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    required
+                    minLength={3}
+                    className="min-w-0 flex-1"
+                    aria-label="Task title"
+                  />
+                </div>
+              </div>
 
               <label className="block text-sm font-semibold text-bb-ink">
                 Priority

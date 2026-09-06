@@ -190,7 +190,7 @@ export function NotificationBell({ variant = "default" }: Props) {
 
       {open ? (
         <div
-          className="absolute right-0 z-50 mt-1 w-[min(100vw-2rem,360px)] overflow-hidden rounded-xl border border-bb-border bg-white shadow-bb-lg"
+          className="absolute right-0 z-50 mt-2 w-[min(100vw-2rem,360px)] overflow-hidden rounded-xl border border-bb-border bg-white shadow-bb-lg"
           onMouseEnter={openMenu}
           onMouseLeave={scheduleClose}
         >
